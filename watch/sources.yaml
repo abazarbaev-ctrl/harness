@@ -1,0 +1,248 @@
+# Web Watcher source list.
+# Read by agents/selfimp/web-watcher.md once a week.
+# Bucketed for fan-out — each bucket gets one Haiku subagent (or the
+# closed-source-researcher if the bucket needs authentication).
+#
+# Adding a source: include url, type, bucket, and a one-line "why we watch it"
+# stating which failure-class or capability-class it relates to (V1 §1.4).
+
+version: 1
+last_updated: 2026-05-02
+
+# Top-level lookback window per source if not overridden.
+default_lookback_days: 7
+
+buckets:
+
+  # ----------------------------------------------------------------------
+  # Anthropic + Claude Code itself
+  # ----------------------------------------------------------------------
+  - id: anthropic
+    description: "Anthropic engineering, Claude Code, model and SDK changes"
+    sources:
+      - name: Anthropic engineering blog
+        url: https://www.anthropic.com/research
+        type: blog
+        why: "model-behavior changes affect every agent prompt"
+      - name: Anthropic Claude Code release notes
+        url: https://github.com/anthropics/claude-code/releases
+        type: github_releases
+        why: "tool changes, hook contracts, settings.json schema"
+      - name: Anthropic Claude Code changelog
+        url: https://docs.claude.com/en/docs/claude-code/overview
+        type: docs
+        why: "feature additions and deprecations affect harness wiring"
+
+  # ----------------------------------------------------------------------
+  # Practitioner blogs
+  # ----------------------------------------------------------------------
+  - id: practitioners
+    description: "Voices we trust on AI-driven engineering practice"
+    sources:
+      - name: Geoffrey Huntley
+        url: https://ghuntley.com/
+        type: blog
+        why: "Ralph loop pattern; autonomous coding discipline"
+      - name: Andrej Karpathy
+        url: https://karpathy.ai/
+        type: blog
+        why: "fundamental ML / agent design"
+      - name: Simon Willison
+        url: https://simonwillison.net/
+        type: blog
+        why: "tool-use patterns, prompt-injection awareness, daily AI engineering"
+      - name: Matt Pocock — AI Hero
+        url: https://www.aihero.dev/
+        type: blog
+        why: "TDD + AI; type-safe AI engineering"
+      - name: Boris Cherny — X
+        url: https://x.com/bcherny
+        type: x_threads
+        auth_required: true
+        bucket_handler: closed-source-researcher
+        why: "Claude Code design rationale; worktree pattern; first-party guidance"
+
+  # ----------------------------------------------------------------------
+  # Spec / harness frameworks (release notes from competitors and peers)
+  # ----------------------------------------------------------------------
+  - id: spec_frameworks
+    description: "Other agentic / spec-driven harnesses we steal good ideas from"
+    sources:
+      - name: Spec-Kit
+        url: https://github.com/github/spec-kit/releases
+        type: github_releases
+        why: "spec-driven dev patterns we may adopt or differentiate from"
+      - name: BMAD-METHOD
+        url: https://github.com/bmadcode/BMAD-METHOD/releases
+        type: github_releases
+        why: "agent simulation / role separation patterns"
+      - name: OpenSpec
+        url: https://github.com/Fission-AI/OpenSpec/releases
+        type: github_releases
+        why: "open spec format proposals"
+      - name: Augment Intent
+        url: https://www.augmentcode.com/blog
+        type: blog
+        why: "living-spec platforms; intent capture"
+      - name: Tessl
+        url: https://www.tessl.io/blog
+        type: blog
+        why: "spec-as-code; living specifications"
+
+  # ----------------------------------------------------------------------
+  # Industry signals (slow but load-bearing)
+  # ----------------------------------------------------------------------
+  - id: industry_signals
+    description: "Macro signals: practice trends, deploy frequency, tool adoption"
+    sources:
+      - name: ThoughtWorks Tech Radar
+        url: https://www.thoughtworks.com/radar
+        type: report_quarterly
+        lookback_days: 90
+        why: "adopt/trial/assess/hold signals on tools we use"
+      - name: DORA — State of DevOps
+        url: https://dora.dev/research/
+        type: report_annual
+        lookback_days: 365
+        why: "deploy-frequency, lead-time, MTTR baselines"
+      - name: Stack Overflow Developer Survey
+        url: https://survey.stackoverflow.co/
+        type: report_annual
+        lookback_days: 365
+        why: "tool / language usage shifts; informs default tooling"
+
+  # ----------------------------------------------------------------------
+  # Tour / onboarding tooling (Phase 6 dependency)
+  # ----------------------------------------------------------------------
+  - id: onboarding_tooling
+    description: "What's changing in product-tour and customer-onboarding tooling"
+    sources:
+      - name: Pendo blog
+        url: https://www.pendo.io/resources/blog/
+        type: blog
+        why: "patterns and anti-patterns for in-app tours"
+      - name: Userpilot blog
+        url: https://userpilot.com/blog/
+        type: blog
+        why: "onboarding pattern shifts; Change Tour input"
+      - name: Appcues blog
+        url: https://www.appcues.com/blog
+        type: blog
+        why: "onboarding pattern shifts; Change Tour input"
+
+  # ----------------------------------------------------------------------
+  # Telemetry & experimentation
+  # ----------------------------------------------------------------------
+  - id: telemetry_experimentation
+    description: "Changelogs and posts from our analytics / experimentation stack"
+    sources:
+      - name: PostHog changelog
+        url: https://posthog.com/changelog
+        type: changelog
+        why: "primary analytics; flag and experiment-platform changes"
+      - name: PostHog blog
+        url: https://posthog.com/blog
+        type: blog
+        why: "experimentation methodology guidance"
+      - name: Statsig changelog
+        url: https://docs.statsig.com/changelog
+        type: changelog
+        why: "scale-tier analytics (>1M MAU)"
+      - name: GrowthBook releases
+        url: https://github.com/growthbook/growthbook/releases
+        type: github_releases
+        why: "T2+ A/B alternative; open-source"
+
+  # ----------------------------------------------------------------------
+  # Test rigor (mutation, property, fuzzing)
+  # ----------------------------------------------------------------------
+  - id: test_rigor
+    description: "Mutation, property-based, fuzzing tooling — the T2/T3 backbone"
+    sources:
+      - name: Stryker mutator releases
+        url: https://github.com/stryker-mutator/stryker-js/releases
+        type: github_releases
+        why: "T2+ mutation testing; Validator depends on it"
+      - name: Hypothesis (Python) releases
+        url: https://github.com/HypothesisWorks/hypothesis/releases
+        type: github_releases
+        why: "T3 property-based testing"
+      - name: fast-check (TS) releases
+        url: https://github.com/dubzzz/fast-check/releases
+        type: github_releases
+        why: "T3 property-based testing"
+      - name: mutmut (Python) releases
+        url: https://github.com/boxed/mutmut/releases
+        type: github_releases
+        why: "T2+ mutation testing for Python projects"
+
+  # ----------------------------------------------------------------------
+  # Security & compliance signals
+  # ----------------------------------------------------------------------
+  - id: security_compliance
+    description: "Security tooling and compliance changes that affect Hard Rails"
+    sources:
+      - name: Semgrep blog + rules
+        url: https://semgrep.dev/blog/
+        type: blog
+        why: "rule library updates; SAST coverage at T1+"
+      - name: OWASP Top Ten
+        url: https://owasp.org/www-project-top-ten/
+        type: docs
+        lookback_days: 365
+        why: "Validator's threat-model baseline"
+      - name: HIPAA / OCR guidance
+        url: https://www.hhs.gov/hipaa/index.html
+        type: regulator
+        lookback_days: 90
+        why: "T2 HIPAA compliance shifts"
+      - name: EU AI Act guidance
+        url: https://artificialintelligenceact.eu/
+        type: regulator
+        lookback_days: 90
+        why: "T3 high-risk AI systems classification"
+
+  # ----------------------------------------------------------------------
+  # Closed-source / authenticated targets — handled by closed-source-researcher
+  # ----------------------------------------------------------------------
+  - id: closed_source
+    description: "Authenticated targets (X/Twitter, LinkedIn, paywalled blogs)"
+    bucket_handler: closed-source-researcher
+    sources:
+      - name: X — Anthropic engineering accounts
+        handles: ["@AnthropicAI", "@bcherny", "@DanielSanchez_S"]
+        type: x_account
+        auth_required: true
+        why: "first-party guidance, often only in posts"
+      - name: X — practitioners
+        handles: ["@karpathy", "@simonw", "@mattpocockuk"]
+        type: x_account
+        auth_required: true
+        why: "see practitioners bucket; authenticated capture"
+      - name: LinkedIn — long-form posts (named accounts only)
+        url: https://www.linkedin.com/
+        type: linkedin_search
+        auth_required: true
+        why: "long-form practitioner posts"
+      - name: aihero.dev premium
+        url: https://www.aihero.dev/
+        type: paywalled_blog
+        auth_required: true
+        why: "Matt Pocock premium content"
+
+# Hand-assembled prioritization for the lead Web Watcher (Opus) when reasoning
+# about which findings to surface to the human. Higher = more weight in scoring.
+relevance_weights:
+  anthropic: 1.0
+  practitioners: 0.9
+  spec_frameworks: 0.7
+  test_rigor: 0.8
+  telemetry_experimentation: 0.7
+  security_compliance: 0.9
+  industry_signals: 0.5
+  onboarding_tooling: 0.5
+  closed_source: 0.7
+
+# Each bucket emits findings into watch/findings/{date}/{bucket-id}/.
+# The lead aggregator writes the digest to watch/findings/{date}/digest.md.
+# Proposals (PRs against the harness repo) live in watch/proposed/{date}/.

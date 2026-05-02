@@ -1,0 +1,84 @@
+exp_id: EXP-<NNNN>
+feature: <slug>
+hypothesis_doc: experiments/proposed/EXP-<NNNN>.md
+status: approved | running | complete | killed
+designed_by: experiment-analyst
+designed_on: <YYYY-MM-DD>
+
+variants:
+  - id: A
+    name: control
+    allocation_pct: 50
+    description: Current behavior
+  - id: B
+    name: treatment
+    allocation_pct: 50
+    description: <one sentence>
+    flag_state_at_start: BEHIND FLAG
+    flag_state_during_experiment: ROLLING OUT
+    flag_state_at_end_if_wins: GENERALLY AVAILABLE (after human approval)
+    flag_state_at_end_if_loses: BEHIND FLAG (then removed)
+
+bucketing:
+  unit: user_id
+  hash_seed: <random 8-byte hex; locked at experiment start, never changed>
+  exclusion:
+    - internal_users
+    - already_in_other_experiment_touching_same_metric
+
+primary_metric:
+  name: <metric>
+  destination: posthog | statsig | growthbook
+  query: |
+    <SQL or DSL or PostHog insight URL>
+
+guardrail_metrics:
+  - name: crash_rate
+    threshold_kill_at: relative +20%
+  - name: p95_latency_ms
+    threshold_kill_at: absolute +200
+  - name: conversion_rate
+    threshold_kill_at: relative -5%
+
+sample_size:
+  power: 0.80
+  alpha: 0.05
+  baseline: <value>
+  mde: <value>
+  per_variant_n: <number>
+  total_n: <number>
+  expected_runtime_days: <number>
+
+interim_peeking:
+  allowed: false | sequential
+  schedule:
+    - day: 7
+    - day: 14
+  alpha_spending: pocock | obrien-fleming | none
+
+novelty_check:
+  compare_first_3_days_vs_last_3_days: true
+
+stop_conditions:
+  - reached_planned_sample_size
+  - guardrail_kill_threshold_hit
+  - manual_stop_by_human
+
+ramp_plan:
+  - day: 0
+    pct: 1
+  - day: 2
+    pct: 5
+  - day: 5
+    pct: 25
+  - day: 8
+    pct: 50
+
+approvals:
+  - role: experiment-analyst
+    name: ...
+    date: ...
+  - role: human
+    name: ...
+    date: ...
+    exception_named: "Exception #2 (production / real users)"

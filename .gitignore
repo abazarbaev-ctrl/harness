@@ -1,0 +1,11 @@
+audit/
+.DS_Store
+*.swp
+.vscode/
+.idea/
+node_modules/
+__pycache__/
+.env
+.env.*
+*.pem
+*.key

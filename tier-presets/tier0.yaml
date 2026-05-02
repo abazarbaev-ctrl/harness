@@ -1,0 +1,12 @@
+tier: 0
+name: prototype
+description: Throwaway prototypes. Constitution and Hard Rails apply. Most other gates do not.
+active_hooks:
+  - pretooluse/forbidden-bash.sh
+  - pretooluse/secrets-scan.sh
+  - pretooluse/no-prod-creds.sh
+  - userpromptsubmit/state-clarifier.sh
+  - postcommit/transcript-archive.sh
+gates:
+  human_signed_token_for_prod: true
+  state_taxonomy_required: true

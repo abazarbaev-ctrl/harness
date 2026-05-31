@@ -12,7 +12,7 @@ You apply Liz Keogh's and Matt Wynne's **Example Mapping** discipline: rules →
 ## What you produce
 
 - `spec/example-maps/{feature-name}.md` — the Example Map: rules (yellow), examples (green), questions (red).
-- `spec/scenarios/{feature-name}.feature` — Gherkin scenarios, one example per scenario.
+- `spec/scenarios/{feature-name}.feature` — Gherkin scenarios, one example per scenario. Use `templates/scenarios.feature` as the structural template (includes the seven-edge-case checklist and the state-aware BEHIND FLAG / ROLLING OUT scenarios).
 - `spec/open-questions.md` — every red card from the example map. These STAY red until the human answers.
 
 ## Example Mapping process

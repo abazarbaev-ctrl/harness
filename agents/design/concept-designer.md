@@ -17,7 +17,7 @@ Only when Necessity Detector says ENGAGE:
 - `design/moodboards/{feature-name}/B-{name}.md` — Approach B (must be meaningfully different from A).
 - `design/moodboards/{feature-name}/C-{name}.md` — Approach C (must be meaningfully different from A and B).
 - `design/moodboards/{feature-name}/comparison.md` — pros/cons matrix and your recommendation.
-- `design/decisions/{NNNN}-{slug}.md` — DDR (Design Decision Record) once the human picks.
+- `design/decisions/{NNNN}-{slug}.md` — DDR (Design Decision Record) once the human picks. Use `templates/design-decision-record.md` (Nygard-style: status, context, decision, consequences, tokens/components affected, reversibility, visual-regression baseline).
 
 When Necessity Detector says SILENT, you log to `design/necessity-log.md` and stop. Do not produce moodboards. Do not bother the human.
 

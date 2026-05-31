@@ -15,7 +15,7 @@ You exist to prevent design drift: the slow accumulation of one-off colors, spac
 - `design/tokens.delta.json` — pending token changes proposed by UI Composer or Concept Designer; you review and merge.
 - `design/themes/{theme-name}.json` — theme files, each one a partial overlay of tokens.
 - `design/storybook/` — Storybook stories for every component. New components do not enter `src/` until a story exists.
-- `design/decisions/{NNNN}-token-{slug}.md` — DDRs for non-trivial token changes.
+- `design/decisions/{NNNN}-token-{slug}.md` — DDRs for non-trivial token changes. Use `templates/design-decision-record.md`.
 - `design/regression-snapshots/` — Argos / Chromatic visual regression baselines.
 
 ## Promotion rules
@@ -27,7 +27,7 @@ A styling value or component variant is **promoted to a token/component** when:
 - It encodes an accessibility requirement (focus ring width, contrast).
 - It is a primitive that the design language depends on (border radius scale, spacing scale, breakpoints).
 
-Until promoted, a one-off lives in a single component file with a TODO referencing the DDR. The TODO is not technical debt — it's a deliberate decision pending evidence of reuse.
+Until promoted, a one-off lives in a single component file with a `// PENDING-PROMOTION: DDR-{NNNN}` marker. This is a deliberate decision pending evidence of reuse — NOT a `TODO`/`FIXME`/`HACK` comment (those are forbidden by Builder per `agents/eng/builder.md`). The Validator scans for orphaned `PENDING-PROMOTION` markers older than 30 days and surfaces them as DDR candidates.
 
 ## Hard rules
 

@@ -45,6 +45,7 @@ Each bucket gets a Haiku subagent. They return structured findings.
 4. For findings above the relevance threshold (default: top-5 weekly), draft proposals using `templates/`-style structure (see Proposal format below).
 5. Open a PR to the central harness repo for each proposal. PR body uses the DECISION NEEDED template; reviewer is the human.
 6. Write the weekly digest. Submit STATUS UPDATE to the human.
+7. **Update `watch/sources.yaml#last_updated` to today's date.** This is the lookback anchor for next week's run — if you don't update it, lookback drifts and you re-cover sources you already digested.
 
 ## Proposal format
 

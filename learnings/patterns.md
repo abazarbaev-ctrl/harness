@@ -78,6 +78,90 @@ Reusable patterns extracted from the work, the retros, and the Web Watcher's fin
   that mechanical). Extend to test-writer→builder and intake→RLM handoffs later.
 - Pruning review: 2026-05-29; status: speculative (awaiting retro #1).
 
+## PAT-0004 — Invert the retro default: auto-retire-with-defense, archive never delete
+- Source: conversation (2026-05-29). Operator-proposed inversion of the §3.12
+  Friday retro default, after honest-feedback session on default-as-destiny.
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: silent harness bloat during operator absences. The
+  current default is "components stay unless deleted at retro," which relies on
+  operator willpower against own creations (loss aversion). The operator has
+  stated 8h/wk budget with multi-week gaps; a keep-by-default harness grows
+  silently during gaps. Also prevents the failure mode where 3-retro
+  speculative-auto-close (§3.13) only applies to issues, not to existing
+  components — meaning existing-but-useless components never auto-die today.
+- Capability class unlocked: the retro inverts from "should I delete this?"
+  (which licenses mumbled keep-decisions) to "why does this deserve to live?"
+  (which forces articulation of failure-class-prevented). Scales constantly
+  with component count instead of linearly — operator only reviews items that
+  hit the threshold this week, not all 60.
+- Where it would live: a NEW `bin/harness retire --shadow|--quarantine|--enforce`
+  subcommand, a `retire/usage-signals.sh` collector, a small `retire/exempt.yaml`
+  list, and two new directories at the project root: `attic/` (quarantine, one
+  cycle) and `archive/retired/{YYYY-MM-DD}/{original-path}/` (permanent record;
+  NEVER deleted — matches Memory Custodian's "never delete, only promote" rule).
+  Rescue via `harness rescue <component>` which copies from attic or archive
+  back to its original path. Auto-fills a new section in `templates/retro.md`
+  named "Defend or let drift" with the week's candidates.
+
+### Design constraints (load-bearing — these are what make it not break the harness)
+  1. **Exempt list is small, named, hard to grow.** Hardcoded in `retire/exempt.yaml`:
+     - everything under `constitution/`
+     - the five Hard Rail hooks by file path
+     - anything with frontmatter `dormant-by-design: true` (component author
+       declares correct dormancy at design time)
+     - components gated by a tier the current project isn't running
+     If the exempt list grows in 3 consecutive retros, the auto-retire system
+     itself becomes a candidate for retirement.
+  2. **Archive, never `git rm`.** Items in `attic/` for 4 weeks without rescue
+     move to `archive/retired/{date}/{path}/` with a metadata file:
+     ```yaml
+     retired_on: YYYY-MM-DD
+     original_path: agents/browser/closed-source-researcher.md
+     last_usage_signal: <date or "never">
+     usage_summary: 0 invocations, 0 references, 0 mentions in 8 weeks
+     rescued_at: null
+     rescue_count: 0
+     ```
+     Items stay in `archive/` forever. Git history alone preserves anything; the
+     `archive/` tree makes the graveyard browseable without git archaeology.
+  3. **Composite signal, not just last-fired-date.** A component counts as "used"
+     this week if ANY of: hook fired in `audit/` | agent invoked (subagent-stop
+     log) | mentioned in a commit message | cited by another active component
+     (static reference grep) | defended in any prior retro (counter increments).
+     Just one signal is enough — bias toward keeping things alive.
+  4. **Two-stage retirement with rescue.** active → attic (week N+4 with zero
+     signal) → archive (week N+8 if not rescued from attic). Rescue from attic
+     is one command; rescue from archive is one command (it just copies the file
+     back). Mistakes are cheap to undo.
+  5. **Phased rollout. NEVER give the system teeth on day one.**
+     - **Shadow (4 weeks):** runs each Friday, generates a "would-have-retired"
+       section in the retro file. Zero file movement. Operator compares
+       judgments against own intuition; calibrates the signal.
+     - **Quarantine (next 4 weeks):** items hitting threshold move to `attic/`.
+       Still no archiving. `harness rescue` restores from `attic/`.
+     - **Full enforcement (week 9+):** attic items > 4 weeks unrescued move to
+       `archive/`. Never `git rm`. Operator can always pull from `archive/`.
+  6. **This pattern is ITSELF subject to retirement.** The auto-retire system is
+     a component. If it produces bad judgments (defends-required-rate > 70%
+     over a quarter, or operator has had to rescue items 3+ retros in a row),
+     the system is failing its own test and goes to attic.
+
+### Risks acknowledged
+  - Wrong signal could quarantine a load-bearing dormant component (Hard Rails
+    fire never; Mission Drift Detector fires only when drift exists). Mitigated
+    by exempt list + `dormant-by-design` frontmatter flag + tier-aware exemption +
+    composite signal + shadow-first rollout.
+  - Exempt-list creep recreates default-keep. Mitigated by 3-retro growth review
+    of the exempt list itself.
+  - "Defend or let drift" becomes a perfunctory mass-rescue (operator defends
+    everything reflexively, restoring default-keep). Mitigated by requiring a
+    one-sentence failure-class-prevented argument PER defended item; mute defends
+    don't count.
+
+- Pruning review: 2026-05-29; status: speculative (awaiting retro #1).
+  Note: this is meta-pattern — if PAT-0001/2/3 fail to be promoted via the
+  existing retro flow, that itself is evidence FOR PAT-0004.
+
 ## Anti-pattern logged (do NOT adopt)
 - AP-0001 — Rebuilding the runtime as composable "workers". iii decomposes the
   runtime because no engine gave them composition. OUR runtime is Claude Code,

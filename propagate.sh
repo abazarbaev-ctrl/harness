@@ -1,12 +1,115 @@
 #!/usr/bin/env bash
+# propagate.sh — install the harness into a project directory.
+# Used by `harness init` for new projects and by `harness sync/resume` for updates.
+# Safe to re-run: existing files are backed up (CLAUDE.md.pre-harness.bak)
+# and symlinks are -sfn (force update without removing the target).
+#
+# Usage:
+#   ./propagate.sh /path/to/project
+#   ./propagate.sh /path/to/project --tier=1
+#
+# What gets installed:
+#   - constitution/CLAUDE.md + AGENTS.md (prepended above existing rules if any)
+#   - constitution/settings.json (merged into .claude/settings.json if exists)
+#   - hooks/* (copied into .claude/hooks/ so Claude Code can fire them via settings.json)
+#   - Symlinks in .claude/{agents,skills,hooks,templates,tier-presets}-central
+#     pointing back to this central repo (so updates flow via `harness sync`)
+#   - Git hooks (precommit, prepush, postcommit) installed into .git/hooks/
+#     ONLY if .git/ exists in the target
+#   - tier preset copied to .claude/tier.yaml (default tier 0)
+
 set -euo pipefail
+
 project_dir="${1:-}"
-[ -z "$project_dir" ] && { echo "Usage: ./propagate.sh /path/to/project"; exit 1; }
-[ ! -d "$project_dir" ] && { echo "ERROR: $project_dir not a directory"; exit 1; }
+tier=0
+shift || true
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --tier=*) tier="${1#--tier=}" ;;
+    --tier) tier="${2:-0}"; shift ;;
+    *) echo "propagate.sh: unknown flag: $1" >&2; exit 2 ;;
+  esac
+  shift || true
+done
+
+[ -z "$project_dir" ] && { echo "Usage: $0 /path/to/project [--tier=N]" >&2; exit 1; }
+[ ! -d "$project_dir" ] && { echo "ERROR: $project_dir is not a directory" >&2; exit 1; }
+
+harness_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd "$project_dir" && pwd)"
+
 mkdir -p "$project_dir/.claude/hooks"
-cp constitution/CLAUDE.md "$project_dir/CLAUDE.md"
-cp constitution/AGENTS.md "$project_dir/AGENTS.md"
-cp constitution/settings.json "$project_dir/.claude/settings.json"
-cp -r hooks/* "$project_dir/.claude/hooks/" 2>/dev/null || true
-git rev-parse HEAD > "$project_dir/.harness-version"
-echo "Harness propagated to $project_dir"
+
+# Constitution — back up existing CLAUDE.md if present and not already harness-installed
+if [ -f "$project_dir/CLAUDE.md" ] && ! grep -q "R1 — The Agent Acts by Default" "$project_dir/CLAUDE.md"; then
+  cp "$project_dir/CLAUDE.md" "$project_dir/CLAUDE.md.pre-harness.bak"
+  cat "$harness_root/constitution/CLAUDE.md" > "$project_dir/CLAUDE.md.new"
+  echo "" >> "$project_dir/CLAUDE.md.new"
+  echo "---" >> "$project_dir/CLAUDE.md.new"
+  echo "" >> "$project_dir/CLAUDE.md.new"
+  echo "# Project rules (prior to harness install — preserved verbatim)" >> "$project_dir/CLAUDE.md.new"
+  echo "" >> "$project_dir/CLAUDE.md.new"
+  cat "$project_dir/CLAUDE.md.pre-harness.bak" >> "$project_dir/CLAUDE.md.new"
+  mv "$project_dir/CLAUDE.md.new" "$project_dir/CLAUDE.md"
+  echo "propagate: existing CLAUDE.md backed up to CLAUDE.md.pre-harness.bak; harness constitution prepended"
+else
+  cp "$harness_root/constitution/CLAUDE.md" "$project_dir/CLAUDE.md"
+fi
+cp "$harness_root/constitution/AGENTS.md" "$project_dir/AGENTS.md"
+
+# settings.json — replace if Phase 0 or missing; otherwise back up first
+if [ ! -f "$project_dir/.claude/settings.json" ] || ! grep -q '"hooks"' "$project_dir/.claude/settings.json"; then
+  if [ -f "$project_dir/.claude/settings.json" ]; then
+    cp "$project_dir/.claude/settings.json" "$project_dir/.claude/settings.json.pre-harness.bak"
+    echo "propagate: existing settings.json backed up; harness version installed"
+  fi
+  cp "$harness_root/constitution/settings.json" "$project_dir/.claude/settings.json"
+else
+  echo "propagate: settings.json already has 'hooks' block; leaving in place (delete it to refresh)"
+fi
+
+# Hooks — copy into .claude/hooks/ so settings.json paths resolve
+cp -r "$harness_root/hooks/"* "$project_dir/.claude/hooks/" 2>/dev/null || true
+find "$project_dir/.claude/hooks" -name '*.sh' -exec chmod +x {} \;
+
+# Central-repo symlinks for agents/skills/templates/tier-presets so `harness sync` flows updates
+ln -sfn "$harness_root/agents" "$project_dir/.claude/agents-central"
+ln -sfn "$harness_root/skills" "$project_dir/.claude/skills-central"
+ln -sfn "$harness_root/templates" "$project_dir/.claude/templates-central"
+ln -sfn "$harness_root/tier-presets" "$project_dir/.claude/tier-presets-central"
+ln -sfn "$harness_root/hooks" "$project_dir/.claude/hooks-central"
+
+# Tier preset
+case "$tier" in 0|1|2|3) ;; *) echo "propagate: invalid tier $tier, defaulting to 0" >&2; tier=0 ;; esac
+cp "$harness_root/tier-presets/tier${tier}.yaml" "$project_dir/.claude/tier.yaml"
+
+# Git hooks — symlink into .git/hooks/ if .git/ exists
+if [ -d "$project_dir/.git" ]; then
+  for h in pre-commit pre-push post-commit; do
+    case "$h" in
+      pre-commit)  src_dir="$project_dir/.claude/hooks/precommit"  ;;
+      pre-push)    src_dir="$project_dir/.claude/hooks/prepush"    ;;
+      post-commit) src_dir="$project_dir/.claude/hooks/postcommit" ;;
+    esac
+    if [ -d "$src_dir" ]; then
+      dispatcher="$project_dir/.git/hooks/$h"
+      cat > "$dispatcher" <<EOF
+#!/usr/bin/env bash
+# Harness git-hook dispatcher — runs every *.sh in .claude/hooks/$(basename "$src_dir")/ in order.
+# Exit on first non-zero. Generated by propagate.sh; regenerated on every harness sync.
+set -e
+for f in "\$(git rev-parse --show-toplevel)/.claude/hooks/$(basename "$src_dir")"/*.sh; do
+  [ -x "\$f" ] || continue
+  "\$f" "\$@" || exit \$?
+done
+EOF
+      chmod +x "$dispatcher"
+    fi
+  done
+  echo "propagate: git hooks installed at .git/hooks/{pre-commit,pre-push,post-commit}"
+fi
+
+# Pin harness version
+git -C "$harness_root" rev-parse HEAD > "$project_dir/.harness-version"
+
+echo "Harness propagated to $project_dir (tier $tier)"

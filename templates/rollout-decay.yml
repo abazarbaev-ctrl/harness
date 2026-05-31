@@ -1,0 +1,72 @@
+# Template: copy to .github/workflows/rollout-decay.yml in a project.
+# ROLLING OUT auto-decay (absence tolerance, Hard Rail #4 respected).
+#
+# The agent never holds prod credentials, so it CANNOT auto-revert a flag.
+# This CI job runs on the deployment platform's own credentials (stored as a
+# GitHub Actions secret), so reverting is done by infrastructure the human
+# controls — not by the agent. The agent's role is only to SURFACE decay
+# (via the dashboard / harness daily); enforcement lives here.
+#
+# Behavior: daily, find any feature flag in ROLLING OUT whose last_authorized
+# date is older than the decay window, and revert it to BEHIND FLAG (0%).
+# A human re-authorizes by updating monitoring/flags.yaml#last_authorized and
+# pushing — which the agent CAN do (it's not a prod credential, just a date).
+
+name: rollout-decay
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  decay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find decayed rollouts
+        id: scan
+        run: |
+          python3 - <<'PY'
+          import re, datetime, os, sys
+          decay_days = int(os.environ.get("DECAY_DAYS", "7"))
+          text = open("monitoring/flags.yaml").read() if os.path.exists("monitoring/flags.yaml") else ""
+          decayed = []
+          for block in re.split(r"\n(?=\S)", text):
+              if "ROLLING OUT" not in block and "ROLLING_OUT" not in block:
+                  continue
+              name = (re.search(r"^(\S+):", block) or [None, "unknown"])[1] if re.search(r"^(\S+):", block) else "unknown"
+              m = re.search(r"last_authorized:\s*(\S+)", block)
+              if m:
+                  try:
+                      dt = datetime.datetime.fromisoformat(m.group(1).replace("Z", "+00:00"))
+                      age = (datetime.datetime.now(datetime.timezone.utc) - dt).days
+                      if age >= decay_days:
+                          decayed.append(name)
+                  except Exception:
+                      decayed.append(name)
+          print("decayed=" + ",".join(decayed))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("decayed=" + ",".join(decayed) + "\n")
+          PY
+
+      - name: Revert decayed flags via platform API
+        if: steps.scan.outputs.decayed != ''
+        env:
+          # Stored as a GitHub Actions secret — the agent never sees this.
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_FLAG_API_KEY }}
+        run: |
+          echo "Reverting decayed flags to BEHIND FLAG (0%): ${{ steps.scan.outputs.decayed }}"
+          # TODO per project: call the flag platform's API to set each flag to 0%.
+          # Example (PostHog):
+          #   for flag in $(echo "${{ steps.scan.outputs.decayed }}" | tr ',' ' '); do
+          #     curl -s -X PATCH "https://app.posthog.com/api/projects/$PROJECT/feature_flags/$flag/" \
+          #       -H "Authorization: Bearer $POSTHOG_API_KEY" \
+          #       -d '{"rollout_percentage": 0, "active": false}'
+          #   done
+
+      - name: Open an issue documenting the decay
+        if: steps.scan.outputs.decayed != ''
+        run: |
+          echo "Decayed flags reverted: ${{ steps.scan.outputs.decayed }}" >> $GITHUB_STEP_SUMMARY
+          echo "A human must re-authorize (update monitoring/flags.yaml#last_authorized) to resume rollout." >> $GITHUB_STEP_SUMMARY

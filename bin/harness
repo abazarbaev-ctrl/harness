@@ -51,6 +51,11 @@ Usage:
       it renders HTML. Shows active features, recent activity, what needs your
       eyes, anomalies, and harness integrity.
 
+  harness daily
+      "What happened while I was gone" text digest. Refreshes the absence
+      heartbeat (lifts review mode so state-changing ops resume). Run this
+      first thing when you return after time away.
+
   harness sign-deploy
       Generate a signed approval token to authorize a production deploy
       (Hard Rail #4). Writes to audit/signed-deploys/.
@@ -506,6 +511,24 @@ cmd_dashboard() {
 }
 
 # ----------------------------------------------------------------------
+# harness daily — "what happened while I was gone" digest + lift review mode.
+# ----------------------------------------------------------------------
+cmd_daily() {
+  if [ ! -f .harness-version ]; then
+    echo "harness daily: not in a harness-managed project." >&2
+    exit 2
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo "harness daily: python3 required." >&2; exit 2; }
+
+  HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/dashboard.py" "$PWD" --digest
+
+  # Refresh the heartbeat — running daily means the human is present; lifts review mode.
+  mkdir -p .harness
+  date -u +%Y-%m-%dT%H:%M:%SZ > .harness/heartbeat
+  echo "Heartbeat refreshed — review mode lifted. State-changing ops are unguarded again."
+}
+
+# ----------------------------------------------------------------------
 # Dispatch
 # ----------------------------------------------------------------------
 case "${1:-help}" in
@@ -527,6 +550,9 @@ case "${1:-help}" in
     ;;
   dashboard)
     cmd_dashboard
+    ;;
+  daily)
+    cmd_daily
     ;;
   status)
     cmd_status

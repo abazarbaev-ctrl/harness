@@ -34,6 +34,11 @@
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse/no-prod-creds.sh"]
+          },
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/pretooluse/absence-guard.sh"]
           }
         ]
       },
@@ -67,12 +72,29 @@
           {
             "type": "command",
             "command": "bash",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/userpromptsubmit/heartbeat.sh"]
+          },
+          {
+            "type": "command",
+            "command": "bash",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/userpromptsubmit/state-clarifier.sh"]
           },
           {
             "type": "command",
             "command": "bash",
             "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/userpromptsubmit/plain-language-translator.sh"]
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/sessionstart/absence-notice.sh"]
           }
         ]
       }

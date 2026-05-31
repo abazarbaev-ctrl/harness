@@ -12,6 +12,9 @@ active_hooks:
   - pretooluse/secrets-scan.sh
   - pretooluse/no-prod-creds.sh
   - userpromptsubmit/state-clarifier.sh
+  - userpromptsubmit/heartbeat.sh
+  - sessionstart/absence-notice.sh
+  - pretooluse/absence-guard.sh
   - userpromptsubmit/plain-language-translator.sh
   - postcommit/transcript-archive.sh
   - precommit/depcruise.sh

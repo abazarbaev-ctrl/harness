@@ -154,6 +154,36 @@ def collect_needs_eyes(proj):
     return items
 
 
+def collect_rollout_decay(proj):
+    """Flags in ROLLING OUT past the decay window (default 7 days) without re-auth.
+    Hard Rail #4: the agent can't auto-revert prod (no creds); we surface loudly."""
+    decayed = []
+    flags_path = os.path.join(proj, "monitoring", "flags.yaml")
+    text = read(flags_path)
+    if not text:
+        return decayed
+    decay_days = int(os.environ.get("HARNESS_ROLLOUT_DECAY_DAYS", "7"))
+    # crude block parse: flag entries with state ROLLING OUT and a last_authorized date
+    blocks = re.split(r"\n(?=\S)", text)
+    for b in blocks:
+        if "ROLLING OUT" not in b and "ROLLING_OUT" not in b:
+            continue
+        name_m = re.search(r"^(\S+):", b)
+        auth_m = re.search(r"last_authorized:\s*(\S+)", b)
+        name = name_m.group(1) if name_m else "unknown-flag"
+        if auth_m:
+            try:
+                dt = datetime.fromisoformat(auth_m.group(1).replace("Z", "+00:00"))
+                age = (datetime.now(timezone.utc) - dt).days
+                if age >= decay_days:
+                    decayed.append(f"{name}: ROLLING OUT for {age}d without re-auth (decay window {decay_days}d) — revert or re-authorize")
+            except Exception:
+                decayed.append(f"{name}: ROLLING OUT, last_authorized unparseable — verify")
+        else:
+            decayed.append(f"{name}: ROLLING OUT with no last_authorized date — add one or revert")
+    return decayed
+
+
 def collect_anomalies(proj):
     anomalies = []
     # ERRs without a paired test on disk
@@ -330,16 +360,44 @@ def main():
         print(f"dashboard: {proj} is not a harness-managed project (.harness-version missing).", file=sys.stderr)
         sys.exit(2)
 
+    rollout_decay = collect_rollout_decay(proj)
     data = {
         "config": project_config(proj),
         "features": collect_features(proj),
         "requests": collect_requests(proj),
         "errs": collect_errs(proj),
         "activity": collect_recent_activity(proj),
-        "needs_eyes": collect_needs_eyes(proj),
-        "anomalies": collect_anomalies(proj),
+        "needs_eyes": collect_needs_eyes(proj) + [f"ROLLOUT DECAY — {d}" for d in rollout_decay],
+        "anomalies": collect_anomalies(proj) + rollout_decay,
         "integrity": collect_integrity(proj),
     }
+
+    # Text digest mode for `harness daily`
+    if "--digest" in sys.argv:
+        cfg = data["config"]
+        print(f"\n=== harness daily — {cfg.get('project', os.path.basename(proj))} (T{cfg.get('tier','?')}) ===")
+        print(f"Generated {datetime.now(timezone.utc).strftime(ISO)}\n")
+        print(f"Active features ({len(data['features'])}):")
+        for f in data["features"]:
+            d = f"{f['days']}d" if f['days'] != "" else "?"
+            print(f"  • {f['name']:<32} {f['state']:<20} {d} in state")
+        if not data["features"]:
+            print("  (none)")
+        print(f"\nLast 7 days: {data['activity']['commits']} commits since {data['activity']['since']}")
+        print(f"Open client requests: {len(data['requests'])}")
+        print(f"ERR entries: {len(data['errs'])}")
+        print("\nNeeds your eyes:")
+        for i in data["needs_eyes"]:
+            print(f"  → {i}")
+        if not data["needs_eyes"]:
+            print("  (nothing)")
+        print("\nAnomalies:")
+        for a in data["anomalies"]:
+            print(f"  ⚠ {a}")
+        if not data["anomalies"]:
+            print("  (none)")
+        print()
+        return
 
     out_dir = os.path.join(proj, ".harness")
     os.makedirs(out_dir, exist_ok=True)

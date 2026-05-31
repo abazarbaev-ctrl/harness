@@ -45,11 +45,14 @@ Usage:
       .claude/{agents,skills,templates,tier-presets,hooks}-central symlinks,
       .claude/tier.yaml, .claude/hooks/ populated, .git/hooks/ dispatchers.
 
-  harness dashboard
+  harness dashboard [--open | --serve [--port N]]
       Regenerate the self-contained HTML dashboard at .harness/dashboard.html
-      (gitignored). Open it in a browser, or in the Claude Code file viewer if
-      it renders HTML. Shows active features, recent activity, what needs your
+      (gitignored). Shows active features, recent activity, what needs your
       eyes, anomalies, and harness integrity.
+        --open   regenerate and open it in your default browser (one step)
+        --serve  start a local server + open a browser tab that AUTO-REFRESHES
+                 with live data every 10s (default port 8787). Open once,
+                 leave the tab, glance whenever. Ctrl-C to stop.
 
   harness daily
       "What happened while I was gone" text digest. Refreshes the absence
@@ -507,7 +510,8 @@ cmd_dashboard() {
     echo "harness dashboard: python3 required." >&2
     exit 2
   fi
-  HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/dashboard.py" "$PWD"
+  # Pass through flags: --open (regenerate + open browser), --serve [--port N] (live tab).
+  HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/dashboard.py" "$PWD" "$@"
 }
 
 # ----------------------------------------------------------------------
@@ -549,7 +553,8 @@ case "${1:-help}" in
     cmd_verify
     ;;
   dashboard)
-    cmd_dashboard
+    shift
+    cmd_dashboard "$@"
     ;;
   daily)
     cmd_daily

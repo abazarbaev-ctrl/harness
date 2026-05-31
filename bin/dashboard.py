@@ -242,7 +242,8 @@ def badge(state):
     return f'<span class="badge" style="background:{c}">{html.escape(state)}</span>'
 
 
-def render_html(proj, data):
+def render_html(proj, data, serve=False):
+    refresh_tag = '<meta http-equiv="refresh" content="10">' if serve else ""
     now = datetime.now(timezone.utc).strftime(ISO)
     cfg = data["config"]
     proj_name = cfg.get("project", os.path.basename(proj.rstrip("/")))
@@ -287,6 +288,7 @@ def render_html(proj, data):
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+{refresh_tag}
 <title>Harness Dashboard — {html.escape(proj_name)}</title>
 <style>
   :root {{ color-scheme: light dark; }}
@@ -352,16 +354,10 @@ def render_html(proj, data):
 </div></body></html>"""
 
 
-def main():
-    proj = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
-    proj = os.path.abspath(proj)
-
-    if not os.path.exists(os.path.join(proj, ".harness-version")):
-        print(f"dashboard: {proj} is not a harness-managed project (.harness-version missing).", file=sys.stderr)
-        sys.exit(2)
-
+def gather(proj):
+    """Collect all dashboard data for a project (re-called on each serve refresh)."""
     rollout_decay = collect_rollout_decay(proj)
-    data = {
+    return {
         "config": project_config(proj),
         "features": collect_features(proj),
         "requests": collect_requests(proj),
@@ -372,8 +368,79 @@ def main():
         "integrity": collect_integrity(proj),
     }
 
+
+def ensure_gitignored(proj):
+    gi = os.path.join(proj, ".gitignore")
+    if ".harness/" not in read(gi):
+        with open(gi, "a", encoding="utf-8") as f:
+            f.write("\n# Harness local dashboard (not version-controlled)\n.harness/\n")
+
+
+def serve(proj, port):
+    """Live mode: serve a self-refreshing dashboard, regenerated on every request."""
+    import http.server
+    import webbrowser
+
+    ensure_gitignored(proj)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass  # quiet
+
+        def do_GET(self):
+            if self.path not in ("/", "/index.html"):
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = render_html(proj, gather(proj), serve=True).encode("utf-8")
+            # also keep the static file fresh for the Claude Code file viewer
+            out_dir = os.path.join(proj, ".harness")
+            os.makedirs(out_dir, exist_ok=True)
+            with open(os.path.join(out_dir, "dashboard.html"), "wb") as f:
+                f.write(body)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = http.server.HTTPServer(("127.0.0.1", port), Handler)
+    url = f"http://127.0.0.1:{port}/"
+    print(f"dashboard: live at {url} (auto-refreshes every 10s; Ctrl-C to stop)")
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\ndashboard: stopped.")
+
+
+def main():
+    args = [a for a in sys.argv[1:]]
+    proj = next((a for a in args if not a.startswith("-")), os.getcwd())
+    proj = os.path.abspath(proj)
+
+    if not os.path.exists(os.path.join(proj, ".harness-version")):
+        print(f"dashboard: {proj} is not a harness-managed project (.harness-version missing).", file=sys.stderr)
+        sys.exit(2)
+
+    # Serve mode: live, self-refreshing.
+    if "--serve" in args:
+        port = 8787
+        if "--port" in args:
+            try:
+                port = int(args[args.index("--port") + 1])
+            except Exception:
+                pass
+        serve(proj, port)
+        return
+
+    data = gather(proj)
+
     # Text digest mode for `harness daily`
-    if "--digest" in sys.argv:
+    if "--digest" in args:
         cfg = data["config"]
         print(f"\n=== harness daily — {cfg.get('project', os.path.basename(proj))} (T{cfg.get('tier','?')}) ===")
         print(f"Generated {datetime.now(timezone.utc).strftime(ISO)}\n")
@@ -405,15 +472,21 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(render_html(proj, data))
 
-    # Ensure .harness/ is gitignored
-    gi = os.path.join(proj, ".gitignore")
-    existing = read(gi)
-    if ".harness/" not in existing:
-        with open(gi, "a", encoding="utf-8") as f:
-            f.write("\n# Harness local dashboard (not version-controlled)\n.harness/\n")
+    ensure_gitignored(proj)
 
     print(f"dashboard: wrote {out_path}")
-    print(f"dashboard: open it in a browser, or in the Claude Code file viewer if it renders HTML.")
+
+    # Open mode: launch the default browser on the generated file.
+    if "--open" in args:
+        import webbrowser
+        try:
+            webbrowser.open("file://" + out_path)
+            print("dashboard: opened in your default browser.")
+        except Exception:
+            print("dashboard: could not auto-open; open the file manually.")
+    else:
+        print("dashboard: open it in a browser, the Claude Code file viewer, or run "
+              "'harness dashboard --serve' for a live auto-refreshing tab.")
 
 
 if __name__ == "__main__":

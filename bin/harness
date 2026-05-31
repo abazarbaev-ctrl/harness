@@ -39,6 +39,12 @@ Usage:
       Show current project state: open requests, pending decisions,
       active flag states, last retro date.
 
+  harness verify
+      Assert that the harness install in this project is intact:
+      CLAUDE.md+constitution, .claude/settings.json with hooks block,
+      .claude/{agents,skills,templates,tier-presets,hooks}-central symlinks,
+      .claude/tier.yaml, .claude/hooks/ populated, .git/hooks/ dispatchers.
+
   harness sign-deploy
       Generate a signed approval token to authorize a production deploy
       (Hard Rail #4). Writes to audit/signed-deploys/.
@@ -121,24 +127,13 @@ cmd_init() {
       retros \
   )
 
-  # Run propagate.sh into the target
-  echo "harness init: propagating constitution and hooks..."
-  ( cd "$HARNESS_ROOT" && bash propagate.sh "$target" )
+  # Initialize git FIRST so propagate.sh can install git-hook dispatchers
+  ( cd "$target" && git init -q )
 
-  # Symlink agents, skills, hooks into .claude/
-  echo "harness init: symlinking central agents/skills/hooks..."
-  ( cd "$target/.claude" && \
-      ln -sfn "$HARNESS_ROOT/agents" agents-central && \
-      ln -sfn "$HARNESS_ROOT/skills" skills-central && \
-      ln -sfn "$HARNESS_ROOT/hooks" hooks-central )
-
-  # Apply tier preset
-  local tier_file="$HARNESS_ROOT/tier-presets/tier${tier}.yaml"
-  if [ ! -f "$tier_file" ]; then
-    echo "harness init: tier preset not found: $tier_file" >&2
-    exit 2
-  fi
-  cp "$tier_file" "$target/.claude/tier.yaml"
+  # Run propagate.sh — installs constitution, Claude Code hooks (via settings.json),
+  # git-hook dispatchers (now that .git/ exists), and all -central symlinks
+  echo "harness init: propagating constitution, hooks, and central symlinks..."
+  ( cd "$HARNESS_ROOT" && bash propagate.sh "$target" --tier="$tier" )
 
   # Project config
   cat > "$target/harness.config.yaml" <<EOF
@@ -188,10 +183,10 @@ EOF
 Append-only. R2 dissent recorded here.
 EOF
 
-  # Initialize git (the initial commit may fail in environments with custom signing — that's OK)
-  ( cd "$target" && git init -q && git add . && \
+  # Initial commit (may fail in environments with custom signing — that's OK; bypass our own hooks for init)
+  ( cd "$target" && git add . && \
     ( git -c user.email="harness@local" -c user.name="harness init" \
-          commit -q -m "init: scaffold tier-${tier} project under harness" \
+          commit -q --no-verify -m "init: scaffold tier-${tier} project under harness" \
       || echo "harness init: initial git commit skipped (commit signing or hooks blocked it); commit manually when ready." ) )
 
   echo
@@ -385,6 +380,111 @@ EOF
 }
 
 # ----------------------------------------------------------------------
+# harness verify — assert that the harness install in this project is intact.
+# ----------------------------------------------------------------------
+cmd_verify() {
+  if [ ! -f .harness-version ]; then
+    echo "harness verify: not in a harness-managed project (.harness-version missing)." >&2
+    exit 2
+  fi
+
+  local errs=0
+  local warns=0
+  _check() { printf "  %-50s %s\n" "$1" "$2"; }
+
+  echo
+  echo "harness verify — checking install in $PWD"
+  echo
+
+  # 1. Project metadata
+  if [ -f harness.config.yaml ]; then
+    _check "harness.config.yaml" "OK"
+  else
+    _check "harness.config.yaml" "MISSING"; errs=$((errs+1))
+  fi
+
+  # 2. Constitution
+  if [ -f CLAUDE.md ] && grep -q "R1 — The Agent Acts by Default" CLAUDE.md; then
+    _check "CLAUDE.md (with constitution)" "OK"
+  else
+    _check "CLAUDE.md (with constitution)" "MISSING OR PHASE-0-ONLY"; errs=$((errs+1))
+  fi
+  if [ -f AGENTS.md ] && grep -q "R1 — The Agent Acts by Default" AGENTS.md; then
+    _check "AGENTS.md (with constitution)" "OK"
+  else
+    _check "AGENTS.md (with constitution)" "MISSING"; errs=$((errs+1))
+  fi
+
+  # 3. Claude Code settings + hooks block
+  if [ -f .claude/settings.json ]; then
+    if python3 -c "import json,sys; d=json.load(open('.claude/settings.json')); sys.exit(0 if 'hooks' in d else 1)" 2>/dev/null; then
+      _check ".claude/settings.json has 'hooks' block" "OK"
+    else
+      _check ".claude/settings.json has 'hooks' block" "MISSING — Claude Code hooks are silent"; errs=$((errs+1))
+    fi
+  else
+    _check ".claude/settings.json" "MISSING"; errs=$((errs+1))
+  fi
+
+  # 4. Central-repo symlinks
+  for d in agents-central skills-central templates-central tier-presets-central hooks-central; do
+    if [ -L ".claude/$d" ] && [ -d ".claude/$d" ]; then
+      _check ".claude/$d -> central" "OK"
+    elif [ -d ".claude/$d" ]; then
+      _check ".claude/$d (directory, not symlink)" "WARN — won't auto-update on harness sync"; warns=$((warns+1))
+    else
+      _check ".claude/$d" "MISSING"; errs=$((errs+1))
+    fi
+  done
+
+  # 5. Tier preset
+  if [ -f .claude/tier.yaml ]; then
+    local tier=$(grep -E '^tier:' .claude/tier.yaml | head -1 | awk '{print $2}')
+    _check ".claude/tier.yaml (tier $tier)" "OK"
+  else
+    _check ".claude/tier.yaml" "MISSING"; errs=$((errs+1))
+  fi
+
+  # 6. Hooks copied locally
+  local hook_count=$(find .claude/hooks -name '*.sh' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$hook_count" -gt 0 ]; then
+    _check ".claude/hooks/ ($hook_count scripts)" "OK"
+  else
+    _check ".claude/hooks/" "EMPTY"; errs=$((errs+1))
+  fi
+
+  # 7. Git-hook dispatchers if .git exists
+  if [ -d .git ]; then
+    local missing_git_hooks=""
+    for gh in pre-commit pre-push post-commit; do
+      [ -x ".git/hooks/$gh" ] || missing_git_hooks="$missing_git_hooks $gh"
+    done
+    if [ -z "$missing_git_hooks" ]; then
+      _check ".git/hooks (pre-commit, pre-push, post-commit)" "OK"
+    else
+      _check ".git/hooks missing:$missing_git_hooks" "WARN — run 'harness sync' to install"; warns=$((warns+1))
+    fi
+  fi
+
+  # 8. Harness version pin
+  local pinned=$(cat .harness-version 2>/dev/null | head -c 12)
+  _check ".harness-version pinned at $pinned" "OK"
+
+  echo
+  if [ "$errs" -gt 0 ]; then
+    echo "VERIFY FAILED — $errs error(s), $warns warning(s)."
+    echo "Fix: run 'harness sync' (or bash /path/to/harness/propagate.sh \"\$PWD\")."
+    exit 1
+  elif [ "$warns" -gt 0 ]; then
+    echo "VERIFY PASSED with $warns warning(s) — install is functional but suboptimal."
+    exit 0
+  else
+    echo "VERIFY PASSED — harness install is intact."
+    exit 0
+  fi
+}
+
+# ----------------------------------------------------------------------
 # Dispatch
 # ----------------------------------------------------------------------
 case "${1:-help}" in
@@ -400,6 +500,9 @@ case "${1:-help}" in
     ;;
   retro)
     cmd_retro
+    ;;
+  verify)
+    cmd_verify
     ;;
   status)
     cmd_status

@@ -45,6 +45,12 @@ Usage:
       .claude/{agents,skills,templates,tier-presets,hooks}-central symlinks,
       .claude/tier.yaml, .claude/hooks/ populated, .git/hooks/ dispatchers.
 
+  harness dashboard
+      Regenerate the self-contained HTML dashboard at .harness/dashboard.html
+      (gitignored). Open it in a browser, or in the Claude Code file viewer if
+      it renders HTML. Shows active features, recent activity, what needs your
+      eyes, anomalies, and harness integrity.
+
   harness sign-deploy
       Generate a signed approval token to authorize a production deploy
       (Hard Rail #4). Writes to audit/signed-deploys/.
@@ -485,6 +491,21 @@ cmd_verify() {
 }
 
 # ----------------------------------------------------------------------
+# harness dashboard — regenerate the self-contained HTML dashboard.
+# ----------------------------------------------------------------------
+cmd_dashboard() {
+  if [ ! -f .harness-version ]; then
+    echo "harness dashboard: not in a harness-managed project." >&2
+    exit 2
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "harness dashboard: python3 required." >&2
+    exit 2
+  fi
+  HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/dashboard.py" "$PWD"
+}
+
+# ----------------------------------------------------------------------
 # Dispatch
 # ----------------------------------------------------------------------
 case "${1:-help}" in
@@ -503,6 +524,9 @@ case "${1:-help}" in
     ;;
   verify)
     cmd_verify
+    ;;
+  dashboard)
+    cmd_dashboard
     ;;
   status)
     cmd_status

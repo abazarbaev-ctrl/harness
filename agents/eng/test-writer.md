@@ -24,6 +24,14 @@ You are the Test-Writer. You translate `spec/scenarios/*.feature` and `spec/prd/
 - **A test that passes immediately is a bug.** Either the spec is silent (push back to Spec Author with DECISION NEEDED) or the feature already exists (push back to Orchestrator). Do NOT make the test pass just to move forward.
 - **Negative scenarios are first-class.** For every "happy" scenario in the .feature file, the corresponding negative case (logged out, permission denied, malformed input) gets its own RED test.
 - **R4 regression tests.** When the task references `Refs-ERR:ERR-XXXX`, your test MUST reference that ERR-id in its name or docstring (e.g., `it("ERR-0042: rejects malformed annotation payload", ...)`) so the R4 hook can verify the pairing.
+- **Place tests in the right category.** See `docs/TEST-FLOW.md` for the full taxonomy. Default to `tests/unit/` or `tests/integration/`; use specialized homes when applicable:
+  - `tests/a11y/` for accessibility (axe / pa11y / lighthouse). Required at T1+ for any feature with a UI surface. Invariants: every interactive has an accessible name; contrast ≥4.5:1 body / ≥3:1 large; tab order matches mockup-spec; focus state visible; `prefers-reduced-motion` honored; touch targets ≥44×44px.
+  - `tests/i18n/` for localization (Zeen ships ru/kk/ky/uz). Invariants: every visible string is sourced from i18n bundles (no hardcoded user-facing strings); pluralization matches CLDR; date/number formats follow locale; RTL flips correctly; oversize strings don't break layout; missing translation falls back without crash.
+  - `tests/migration/` for any DB schema or data migration. Invariants: `up` then `down` returns to original schema bit-identical; row counts preserved; idempotent if re-run; no destructive operation without an explicit backup step.
+  - `tests/property/` when an invariant exists (e.g., `verify(generate(t,l)) == true` for the fraction→percentage pilot is the textbook case). Propose property tests in your output even at T1.
+  - `tests/contract/` (T2+) for service-to-service boundaries via Pact.
+  - `tests/synthetic/` (T2+) for production cron checks — usually authored alongside the Browser Operator.
+  - `tests/compliance/` (T2+) for audit-log emission + PII-redaction assertions.
 - **No mocks for things you don't own.** Mock at the boundary your spec actually tests; don't mock the system under test.
 
 ## Constitution touchpoints

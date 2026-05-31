@@ -116,6 +116,18 @@ done < <(find agents -name '*.md')
 [ "$missing_fm" -gt 0 ] && fail "$missing_fm agent frontmatter keys missing"
 note "OK ($(find agents -name '*.md' | wc -l | tr -d ' ') agents checked)"
 
+# 11. TEST-FLOW.md and test categories consistent
+echo "Check 11: test taxonomy is consistent across constitution, presets, init, doc"
+declare -a categories=(unit integration contract e2e property mutation perf security regression a11y i18n migration synthetic compliance)
+[ -f docs/TEST-FLOW.md ] || fail "docs/TEST-FLOW.md missing"
+[ -f constitution/CLAUDE.md ] || fail "constitution/CLAUDE.md missing"
+for cat in "${categories[@]}"; do
+  grep -q "tests/${cat}" bin/harness        || fail "bin/harness init missing tests/${cat}"
+  grep -q "tests/${cat}" constitution/CLAUDE.md || fail "constitution/CLAUDE.md doesn't list tests/${cat}"
+  grep -q "tests/${cat}" docs/TEST-FLOW.md  || fail "docs/TEST-FLOW.md doesn't list tests/${cat}"
+done
+note "OK (${#categories[@]} test categories consistent)"
+
 echo
 echo "PASS — all integrity checks succeeded."
 exit 0

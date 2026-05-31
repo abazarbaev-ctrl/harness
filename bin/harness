@@ -128,7 +128,7 @@ cmd_init() {
       spec/prd spec/scenarios spec/example-maps \
       arch/adr arch/diagrams arch/fitness-functions \
       src \
-      tests/unit tests/integration tests/contract tests/e2e tests/property tests/mutation tests/perf tests/security tests/regression \
+      tests/unit tests/integration tests/contract tests/e2e tests/property tests/mutation tests/perf tests/security tests/regression tests/a11y tests/i18n tests/migration tests/synthetic tests/compliance \
       evals/capability evals/refusal evals/safety evals/bias evals/adversarial evals/regressions evals/drift evals/judges \
       monitoring \
       experiments/proposed experiments/running experiments/completed \

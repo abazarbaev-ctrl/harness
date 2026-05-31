@@ -58,6 +58,25 @@ A project under the harness has these structural pieces — verify they exist:
 
 If any of `.claude/{agents,skills,templates}-central` is missing or stale, the harness is not fully live here — run `harness sync` (or, in this session, ask Claude to run `bash /path/to/harness/propagate.sh "$PWD"`).
 
+## Test categories the harness recognizes
+
+Every category has a home and a tier at which it becomes mandatory. See `docs/TEST-FLOW.md` for the full process (who writes, in what order, what's enforced mechanically).
+
+- `tests/unit/`, `tests/integration/` — required from T1.
+- `tests/contract/` (Pact) — required from T2 (cross-service boundaries).
+- `tests/e2e/` (Playwright) — required from T1 if there's a UI.
+- `tests/property/` (fast-check / Hypothesis) — required from T3, encouraged at T1+ when invariants exist.
+- `tests/mutation/` (Stryker / mutmut) — required from T2.
+- `tests/perf/` — latency budgets; required from T2.
+- `tests/security/` — SAST/DAST/secrets; Semgrep+gitleaks+Snyk from T1, +Trivy from T2.
+- `tests/regression/` — R4 paired to ERR-XXXX; required at every tier; mechanically enforced by `prepush/r4-err-pairing.sh`.
+- `tests/a11y/` — automated WCAG (axe/pa11y/lighthouse); required from T1 if a UI exists.
+- `tests/i18n/` — localization (RTL, plural, format, encoding, overflow); required from T1 if multilingual.
+- `tests/migration/` — DB schema migrations forward+backward + data integrity; required from T1 if a DB has migrations.
+- `tests/synthetic/` — production-running smoke (Datadog Synthetics / Checkly / Playwright cron); required from T2.
+- `tests/compliance/` — audit-log emission, PII redaction, BAA validity, signed audit chain; required from T2.
+- `evals/{capability,refusal,safety,bias,adversarial,regression,drift,judges}/` — LLM-side evals; `regression` from T1, all from T2.
+
 ## Standard handoff order
 
 Discover (PM) → Constitute (PM + Eng) → Plan (Eng Orchestrator) → Execute (Test-Writer → Builder → Validator → Judge → Promoter) → Harden & Release. Design engages only when the Necessity Detector returns ENGAGE. Client + Monitor + Browser + Self-Improvement + Mission + Memory subsystems run alongside per their own cadences (event-driven, weekly, nightly).

@@ -70,6 +70,22 @@ active_skills:
   - state-clarifier
   - five-exceptions-check
 
+test_categories:
+  unit: required
+  integration: required
+  contract: optional   # required at T2
+  e2e: required_if_ui
+  property: encouraged_when_invariants_exist
+  mutation: optional   # required at T2
+  perf: per_project_budget
+  security: required
+  regression: required   # R4 mechanical
+  a11y: required_if_ui
+  i18n: required_if_multilingual
+  migration: required_if_db_migrations
+  synthetic: optional   # required at T2
+  compliance: optional   # required at T2
+
 gates:
   human_signed_token_for_prod: true
   state_taxonomy_required: true

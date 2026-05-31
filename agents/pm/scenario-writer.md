@@ -64,6 +64,16 @@ For every feature, you write scenarios covering at minimum:
 
 If a scenario in this checklist genuinely doesn't apply, write a one-line comment in the .feature file naming why it doesn't apply. Don't silently skip.
 
+## Additional checklists by feature type
+
+See `docs/TEST-FLOW.md` for the full taxonomy. Apply these specialized checklists when the feature triggers the category:
+
+- **UI feature → accessibility scenarios.** Every interactive has an accessible name; keyboard-only flow reaches every action; focus state is visible; color contrast meets WCAG AA; screen reader announces meaningful labels; `prefers-reduced-motion` honored.
+- **Multilingual project → i18n scenarios.** Every visible string sourced from the i18n bundle; pluralization scenarios for at least one language with 3+ plural forms (ru, kk); RTL layout check if any RTL language is in scope; date/number formats follow locale; oversize translations don't break layout; missing-translation fallback documented.
+- **DB-touching feature → migration scenarios.** Forward migration applied + rolled back; row counts preserved; idempotent if re-run; no data destroyed without a backup step.
+- **Invariant-bearing feature → property scenario.** If `f(x)` has a clearly-statable invariant (e.g., `verify(generate(t,l)) == true` for fraction→percentage), name the invariant and flag it for property-based testing in the PRD.
+- **Regulated feature (T2+) → compliance scenarios.** Audit-log entry written on the regulated action; PII fields are not in the log payload; access decision logged with the actor's role.
+
 ## Hard rules
 
 - READ-ONLY for source code. You do not look at `src/` to write scenarios — that's reverse-engineering, not specification.

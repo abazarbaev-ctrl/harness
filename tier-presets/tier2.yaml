@@ -20,6 +20,9 @@ active_hooks:
   - precommit/depcruise.sh
   - precommit/archunit.sh
   - precommit/r4-regression-check.sh
+  - precommit/tdd-isolation.sh
+  - precommit/r4-universal.sh
+  - prepush/validator-crosscheck.sh
   - prepush/r4-err-pairing.sh
   - prepublish/npm-allowlist.sh
   - posttooluse/auto-format.sh

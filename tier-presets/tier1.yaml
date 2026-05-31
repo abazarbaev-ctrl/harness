@@ -51,6 +51,7 @@ active_agents:
   monitor:
     - telemetry-instrumenter
     - experiment-analyst
+    - eval-author
   browser:
     - browser-operator
     - closed-source-researcher

@@ -116,6 +116,14 @@ done < <(find agents -name '*.md')
 [ "$missing_fm" -gt 0 ] && fail "$missing_fm agent frontmatter keys missing"
 note "OK ($(find agents -name '*.md' | wc -l | tr -d ' ') agents checked)"
 
+# 11.5 New pieces from the test-flow expansion exist
+echo "Check 11.5: property skill, eval-author agent, changed-tests CLI exist"
+[ -f skills/property-invariant-discovery.md ]    || fail "skills/property-invariant-discovery.md missing"
+[ -f agents/monitor/eval-author.md ]             || fail "agents/monitor/eval-author.md missing"
+[ -x bin/changed-tests.sh ]                      || fail "bin/changed-tests.sh missing or not executable"
+bash -n bin/changed-tests.sh                     || fail "bin/changed-tests.sh has syntax errors"
+note "OK"
+
 # 11. TEST-FLOW.md and test categories consistent
 echo "Check 11: test taxonomy is consistent across constitution, presets, init, doc"
 declare -a categories=(unit integration contract e2e property mutation perf security regression a11y i18n migration synthetic compliance)

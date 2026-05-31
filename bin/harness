@@ -59,6 +59,11 @@ Usage:
       heartbeat (lifts review mode so state-changing ops resume). Run this
       first thing when you return after time away.
 
+  harness changed [BASE]
+      Run only the tests affected by changes since BASE (default origin/main).
+      Wraps vitest --related / jest --changedSince / pytest-testmon. Fast
+      iteration during a feature; the full suite still runs at gates.
+
   harness sign-deploy
       Generate a signed approval token to authorize a production deploy
       (Hard Rail #4). Writes to audit/signed-deploys/.
@@ -515,6 +520,17 @@ cmd_dashboard() {
 }
 
 # ----------------------------------------------------------------------
+# harness changed — run only the tests affected by changes since BASE.
+# ----------------------------------------------------------------------
+cmd_changed() {
+  if [ ! -f .harness-version ]; then
+    echo "harness changed: not in a harness-managed project." >&2
+    exit 2
+  fi
+  bash "$HARNESS_BIN/changed-tests.sh" "$@"
+}
+
+# ----------------------------------------------------------------------
 # harness daily — "what happened while I was gone" digest + lift review mode.
 # ----------------------------------------------------------------------
 cmd_daily() {
@@ -555,6 +571,10 @@ case "${1:-help}" in
   dashboard)
     shift
     cmd_dashboard "$@"
+    ;;
+  changed)
+    shift
+    cmd_changed "$@"
     ;;
   daily)
     cmd_daily

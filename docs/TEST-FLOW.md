@@ -102,6 +102,50 @@ Three places to update (and the integrity test catches drift):
 
 Removing a category follows the same path in reverse, but archive-don't-delete per PAT-0004.
 
+## Fast iteration: which tests to run
+
+The full suite runs at gates (Validator, prepush). During a feature, use:
+
+```
+harness changed [BASE]    # default origin/main
+```
+
+Wraps the test runner's native impact detection (vitest --related, jest
+--changedSince, pytest-testmon, pytest-picked). Falls back to the full suite
+if no impact-detection tool is installed. **Not a replacement for the gate
+run** — only a productivity tool while iterating on a feature.
+
+## Property-test invariants (when to add them)
+
+See `skills/property-invariant-discovery.md`. A 13-pattern checklist for
+deriving invariants from a feature spec. Walk it whenever Test-Writer scopes
+a new function — most features yield 1–3 properties even if you don't think
+of property testing as a default mode. Required at T3, encouraged at T1+
+whenever an invariant is obvious.
+
+For the fraction→percentage pilot, the obvious invariants are:
+- bounds: `0 ≤ fractionToPercentage(n,d)`
+- monotonicity: `n1 < n2 ⇒ f(n1,d) < f(n2,d)`
+- verifier refinement: `verify(p, fractionToPercentage(p)) == true` for any p
+
+These give one property file with 3–5 `it.prop()` declarations that exercise
+1000s of inputs the Test-Writer would never enumerate by hand.
+
+## LLM evals (cases authored, not improvised)
+
+For LLM-using features (T2+), the **Eval Author** agent
+(`agents/monitor/eval-author.md`) owns the case corpus across the 8 eval
+categories (capability / refusal / safety / bias / adversarial / regression
+/ drift / judges). The Validator runs them; the Eval Author authors them.
+
+Crucial property: regression evals are R4-for-LLMs. When the Experiment
+Analyst captures a production LLM failure, the Eval Author adds a regression
+case before the fix is accepted. Same discipline as unit-test regressions.
+
+For Zeen's pilot (deterministic verifier, no LLM behavior to test), this is
+silent. When Zeen adds an LLM-powered hint generator or explanation
+generator, the Eval Author engages.
+
 ## What still requires the human
 
 - Approving the PRD (gate 1).

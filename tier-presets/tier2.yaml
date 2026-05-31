@@ -1,0 +1,162 @@
+tier: 2
+name: regulated-saas
+description: |
+  HIPAA, SOC2 Type II, GDPR-regulated B2B SaaS. Everything T1 plus: contract
+  tests, adversarial evals, line 80%, mutation 60%, audit log, PostHog HIPAA
+  or Freshpaint. BAAs, encryption at rest + in transit, RBAC.
+
+allows_ralph: false
+
+active_hooks:
+  - pretooluse/forbidden-bash.sh
+  - pretooluse/secrets-scan.sh
+  - pretooluse/no-prod-creds.sh
+  - userpromptsubmit/state-clarifier.sh
+  - userpromptsubmit/plain-language-translator.sh
+  - postcommit/transcript-archive.sh
+  - precommit/depcruise.sh
+  - precommit/archunit.sh
+  - precommit/r4-regression-check.sh
+  - prepush/r4-err-pairing.sh
+  - prepublish/npm-allowlist.sh
+  - posttooluse/auto-format.sh
+  - subagent-stop/transcript-archive.sh
+  - precompact/backup-transcript.sh
+
+active_agents:
+  pm:
+    - concept-coach
+    - user-researcher
+    - scenario-writer
+    - spec-author
+  design:
+    - concept-designer
+    - design-system-custodian
+    - ui-composer
+    - ux-critic
+  eng:
+    - orchestrator
+    - researcher
+    - test-writer
+    - builder
+    - validator
+    - judge
+    - promoter
+  client:
+    - feedback-intake
+    - request-lifecycle-manager
+  monitor:
+    - telemetry-instrumenter
+    - experiment-analyst
+  browser:
+    - browser-operator
+    - closed-source-researcher
+  selfimp:
+    - web-watcher
+  mission:
+    - mission-drift-detector
+  memory:
+    - memory-custodian
+
+active_skills:
+  - tdd-red-green-refactor
+  - bdd-example-mapping
+  - necessity-detector
+  - mom-test-interview
+  - three-approach-design
+  - state-clarifier
+  - five-exceptions-check
+
+gates:
+  human_signed_token_for_prod: true
+  state_taxonomy_required: true
+  r4_regression_pairing_required: true
+  test_coverage:
+    line_pct_threshold: 80
+    branch_pct_threshold: 70
+    enforce_in_validator: true
+  mutation:
+    required: true
+    repo_threshold_pct: 60
+    critical_path_threshold_pct: 75
+    tool_ts: stryker
+    tool_py: mutmut
+  contract_tests:
+    required: true
+    tool: pact
+    pacts_versioned: true
+  property_based:
+    required: false
+  fuzzing:
+    required: false
+  chaos:
+    required: false
+  evals:
+    capability: required
+    refusal: required
+    safety: required
+    bias: required
+    adversarial: required
+    regression: required
+    judges: required
+  static_analysis:
+    semgrep:
+      enabled: true
+      configs: [p/owasp-top-ten, p/r2c-security-audit, p/security-audit]
+      block_on_high: true
+      block_on_medium: true
+    gitleaks:
+      enabled: true
+      block_on_finding: true
+    snyk:
+      enabled: true
+      block_on_high: true
+      block_on_medium: true
+    trivy:
+      enabled: true
+      scan_containers: true
+  performance:
+    p95_latency_budget_ms: 500
+    bundle_size_budget_kb: null   # set per project
+  visual_regression:
+    enabled: true
+    tool: argos
+    block_on_unintended_diff: true
+
+deploy_gates:
+  staging:
+    auto_via_signed_ci: true
+    require_judge_accept: true
+    audit_log_emit_verified: true
+  production:
+    requires_human_signed_token: true
+    requires_action_required_naming_exception_2: true
+    rollout_plan_required: true
+    rollback_plan_required: true
+    monitoring_dashboards_required: true
+    audit_log_emit_verified: true
+
+monitoring:
+  required: true
+  destination: posthog-hipaa-or-freshpaint
+  event_catalog_required: true
+  feature_flag_evaluations_logged: true
+  sentry_required_from_day_one: true
+  audit_log_required: true
+  audit_log_pii_redaction: true
+
+compliance_modules:
+  soc2_lite_hygiene: true
+  soc2_type_ii: true
+  gdpr_basic: true
+  gdpr_dpia_for_high_risk: true
+  hipaa: true
+  baa_tracking_required: true
+  encryption_at_rest_required: true
+  encryption_in_transit_required: true
+  rbac_required: true
+  fedramp: false
+  eu_ai_act_high_risk: false
+  signed_audit_chain: false
+  dual_control_prod_deploy: false
+  pii_phi_handling_documented: true

@@ -1,0 +1,186 @@
+tier: 3
+name: high-rigor
+description: |
+  Clinical SaMD, fintech transactional, EU AI Act high-risk. Everything T2 plus:
+  property-based, fuzzing, chaos, line 90%, mutation 75%, signed audit chain.
+  Self-hosted PostHog or Piwik PRO + GrowthBook. DPIA, dual-control prod deploy,
+  drift monitoring.
+
+allows_ralph: false
+
+active_hooks:
+  - pretooluse/forbidden-bash.sh
+  - pretooluse/secrets-scan.sh
+  - pretooluse/no-prod-creds.sh
+  - userpromptsubmit/state-clarifier.sh
+  - userpromptsubmit/plain-language-translator.sh
+  - postcommit/transcript-archive.sh
+  - precommit/depcruise.sh
+  - precommit/archunit.sh
+  - precommit/r4-regression-check.sh
+  - prepush/r4-err-pairing.sh
+  - prepublish/npm-allowlist.sh
+  - posttooluse/auto-format.sh
+  - subagent-stop/transcript-archive.sh
+  - precompact/backup-transcript.sh
+
+active_agents:
+  pm:
+    - concept-coach
+    - user-researcher
+    - scenario-writer
+    - spec-author
+  design:
+    - concept-designer
+    - design-system-custodian
+    - ui-composer
+    - ux-critic
+  eng:
+    - orchestrator
+    - researcher
+    - test-writer
+    - builder
+    - validator
+    - judge
+    - promoter
+  client:
+    - feedback-intake
+    - request-lifecycle-manager
+  monitor:
+    - telemetry-instrumenter
+    - experiment-analyst
+  browser:
+    - browser-operator
+    - closed-source-researcher
+  selfimp:
+    - web-watcher
+  mission:
+    - mission-drift-detector
+  memory:
+    - memory-custodian
+
+active_skills:
+  - tdd-red-green-refactor
+  - bdd-example-mapping
+  - necessity-detector
+  - mom-test-interview
+  - three-approach-design
+  - state-clarifier
+  - five-exceptions-check
+
+gates:
+  human_signed_token_for_prod: true
+  state_taxonomy_required: true
+  r4_regression_pairing_required: true
+  test_coverage:
+    line_pct_threshold: 90
+    branch_pct_threshold: 85
+    enforce_in_validator: true
+  mutation:
+    required: true
+    repo_threshold_pct: 75
+    critical_path_threshold_pct: 85
+    tool_ts: stryker
+    tool_py: mutmut
+  contract_tests:
+    required: true
+    tool: pact
+    pacts_versioned: true
+  property_based:
+    required: true
+    tool_ts: fast-check
+    tool_py: hypothesis
+    minimum_examples_per_property: 200
+  fuzzing:
+    required: true
+    iterations_per_run: 100000
+    crash_threshold: 0
+  chaos:
+    required: true
+    scenarios:
+      - dependency_timeout
+      - dependency_500
+      - network_partition
+      - clock_skew
+      - oom
+  evals:
+    capability: required
+    refusal: required
+    safety: required
+    bias: required
+    adversarial: required
+    regression: required
+    drift: required
+    judges: required
+  static_analysis:
+    semgrep:
+      enabled: true
+      configs: [p/owasp-top-ten, p/r2c-security-audit, p/security-audit]
+      block_on_high: true
+      block_on_medium: true
+      block_on_low: true
+    gitleaks:
+      enabled: true
+      block_on_finding: true
+    snyk:
+      enabled: true
+      block_on_high: true
+      block_on_medium: true
+    trivy:
+      enabled: true
+      scan_containers: true
+      scan_dependencies: true
+  performance:
+    p95_latency_budget_ms: 300
+    bundle_size_budget_kb: null   # set per project
+  visual_regression:
+    enabled: true
+    tool: argos
+    block_on_unintended_diff: true
+
+deploy_gates:
+  staging:
+    auto_via_signed_ci: true
+    require_judge_accept: true
+    audit_log_emit_verified: true
+    signed_audit_chain_verified: true
+  production:
+    requires_human_signed_token: true
+    requires_action_required_naming_exception_2: true
+    rollout_plan_required: true
+    rollback_plan_required: true
+    monitoring_dashboards_required: true
+    audit_log_emit_verified: true
+    signed_audit_chain_verified: true
+    dual_control_required: true   # second human approver
+    canary_required: true
+    canary_minutes_before_ramp: 60
+
+monitoring:
+  required: true
+  destination: self-hosted-posthog-or-piwik-pro
+  event_catalog_required: true
+  feature_flag_evaluations_logged: true
+  sentry_required_from_day_one: true
+  audit_log_required: true
+  audit_log_pii_redaction: true
+  signed_audit_chain: true
+  drift_monitoring_required: true   # data + model drift if ML
+
+compliance_modules:
+  soc2_lite_hygiene: true
+  soc2_type_ii: true
+  gdpr_basic: true
+  gdpr_dpia_for_high_risk: true
+  hipaa: optional   # set true if applicable
+  baa_tracking_required: true
+  encryption_at_rest_required: true
+  encryption_in_transit_required: true
+  rbac_required: true
+  fedramp: optional   # set true if applicable
+  eu_ai_act_high_risk: true   # apply Article 6 / Annex III if applicable
+  signed_audit_chain: true
+  dual_control_prod_deploy: true
+  pii_phi_handling_documented: true
+  red_team_required_per_release: true
+  threat_model_required_per_phase: true

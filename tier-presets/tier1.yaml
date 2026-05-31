@@ -1,0 +1,138 @@
+tier: 1
+name: standard-saas
+description: |
+  Standard B2C/B2B SaaS, marketing site, public-facing tools. Constitution and
+  Hard Rails apply. Pyramid testing + 70% line coverage + Semgrep. PostHog or
+  equivalent monitoring. SOC2-lite hygiene.
+
+allows_ralph: false   # Ralph is T0 only
+
+active_hooks:
+  - pretooluse/forbidden-bash.sh
+  - pretooluse/secrets-scan.sh
+  - pretooluse/no-prod-creds.sh
+  - userpromptsubmit/state-clarifier.sh
+  - userpromptsubmit/plain-language-translator.sh
+  - postcommit/transcript-archive.sh
+  - precommit/depcruise.sh
+  - precommit/r4-regression-check.sh
+  - prepush/r4-err-pairing.sh
+  - prepublish/npm-allowlist.sh
+  - posttooluse/auto-format.sh
+
+active_agents:
+  pm:
+    - concept-coach
+    - user-researcher
+    - scenario-writer
+    - spec-author
+  design:
+    - concept-designer
+    - design-system-custodian
+    - ui-composer
+    - ux-critic
+  eng:
+    - orchestrator
+    - researcher
+    - test-writer
+    - builder
+    - validator
+    - judge
+    - promoter
+  client:
+    - feedback-intake
+    - request-lifecycle-manager
+  monitor:
+    - telemetry-instrumenter
+    - experiment-analyst
+  browser:
+    - browser-operator
+    - closed-source-researcher
+  selfimp:
+    - web-watcher
+  mission:
+    - mission-drift-detector
+  memory:
+    - memory-custodian
+
+active_skills:
+  - tdd-red-green-refactor
+  - bdd-example-mapping
+  - necessity-detector
+  - mom-test-interview
+  - three-approach-design
+  - state-clarifier
+  - five-exceptions-check
+
+gates:
+  human_signed_token_for_prod: true
+  state_taxonomy_required: true
+  r4_regression_pairing_required: true
+  test_coverage:
+    line_pct_threshold: 70
+    branch_pct_threshold: 60
+    enforce_in_validator: true
+  mutation:
+    required: false   # T2+ only
+    threshold_pct: 0
+  property_based:
+    required: false   # T3 only
+  fuzzing:
+    required: false   # T3 only
+  chaos:
+    required: false   # T3 only
+  evals:
+    capability: optional
+    refusal: optional
+    safety: optional
+    bias: optional
+    adversarial: optional
+    regression: required
+  static_analysis:
+    semgrep:
+      enabled: true
+      configs: [p/owasp-top-ten, p/r2c-security-audit]
+      block_on_high: true
+    gitleaks:
+      enabled: true
+      block_on_finding: true
+    snyk:
+      enabled: true
+      block_on_high: true
+  performance:
+    p95_latency_budget_ms: null   # set per project
+    bundle_size_budget_kb: null   # set per project
+  visual_regression:
+    enabled: true
+    tool: argos   # or chromatic if Storybook
+    block_on_unintended_diff: true
+
+deploy_gates:
+  staging:
+    auto_via_signed_ci: true
+    require_judge_accept: true
+  production:
+    requires_human_signed_token: true
+    requires_action_required_naming_exception_2: true
+    rollout_plan_required: true
+    rollback_plan_required: true
+    monitoring_dashboards_required: true
+
+monitoring:
+  required: true
+  destination: posthog
+  event_catalog_required: true
+  feature_flag_evaluations_logged: true
+  sentry_required_from_day_one: true
+  audit_log_required: false   # T2+ only
+
+compliance_modules:
+  soc2_lite_hygiene: true
+  gdpr_basic: optional   # set true if EU users
+  hipaa: false
+  fedramp: false
+  eu_ai_act_high_risk: false
+  dpia_required: false
+  baa_tracking_required: false
+  signed_audit_chain: false
+  dual_control_prod_deploy: false

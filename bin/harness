@@ -1,0 +1,418 @@
+#!/usr/bin/env bash
+# harness — the CLI for the autonomous AI-coding harness.
+#
+# Subcommands:
+#   harness init <project-name> [--tier=N]
+#   harness resume
+#   harness sync
+#   harness retro
+#   harness status
+#   harness sign-deploy
+#   harness help
+
+set -euo pipefail
+
+# Resolve the harness repo root (this script lives at $REPO/bin/harness).
+HARNESS_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_ROOT="$(cd "$HARNESS_BIN/.." && pwd)"
+
+print_usage() {
+  cat <<'EOF'
+harness — the autonomous AI-coding harness CLI.
+
+Usage:
+  harness init <project-name> [--tier=N] [--path=DIR]
+      Bootstrap a new project under the harness. Tiers: 0,1,2,3 (default 0).
+      The new project is created at $PWD/<project-name> unless --path is given.
+
+  harness resume
+      Pull the latest harness, three-way-merge with project overrides,
+      summarize what's new, then launch Claude Code in the project root.
+
+  harness sync
+      Same as resume but does NOT launch Claude Code.
+
+  harness retro
+      Open this week's retro template in $EDITOR (creates retros/<week>.md if missing).
+
+  harness status
+      Show current project state: open requests, pending decisions,
+      active flag states, last retro date.
+
+  harness sign-deploy
+      Generate a signed approval token to authorize a production deploy
+      (Hard Rail #4). Writes to audit/signed-deploys/.
+
+  harness help
+      Print this message.
+EOF
+}
+
+# ----------------------------------------------------------------------
+# harness init <project-name> [--tier=N] [--path=DIR]
+# ----------------------------------------------------------------------
+cmd_init() {
+  local project_name="${1:-}"
+  shift || true
+
+  local tier=0
+  local path_override=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --tier=*)
+        tier="${1#--tier=}"
+        ;;
+      --tier)
+        tier="${2:-0}"
+        shift
+        ;;
+      --path=*)
+        path_override="${1#--path=}"
+        ;;
+      --path)
+        path_override="${2:-}"
+        shift
+        ;;
+      *)
+        echo "harness: unknown init flag: $1" >&2
+        exit 2
+        ;;
+    esac
+    shift || true
+  done
+
+  if [ -z "$project_name" ]; then
+    echo "harness init: project name required" >&2
+    print_usage
+    exit 2
+  fi
+
+  case "$tier" in 0|1|2|3) ;; *) echo "harness init: tier must be 0, 1, 2, or 3" >&2; exit 2;; esac
+
+  local target="${path_override:-$PWD/$project_name}"
+  if [ -e "$target" ]; then
+    echo "harness init: $target already exists" >&2
+    exit 2
+  fi
+
+  echo "harness init: creating $target (tier $tier)"
+  mkdir -p "$target"
+
+  # Project skeleton per HARNESS-V1.md §2.5
+  ( cd "$target" && mkdir -p \
+      .harness-overrides \
+      .claude/skills .claude/hooks .claude/agents \
+      pm/interviews \
+      design/themes design/moodboards design/mockups design/storybook design/decisions design/regression-snapshots \
+      spec/prd spec/scenarios spec/example-maps \
+      arch/adr arch/diagrams arch/fitness-functions \
+      src \
+      tests/unit tests/integration tests/contract tests/e2e tests/property tests/mutation tests/perf tests/security tests/regression \
+      evals/capability evals/refusal evals/safety evals/bias evals/adversarial evals/regressions evals/drift evals/judges \
+      monitoring \
+      experiments/proposed experiments/running experiments/completed \
+      client/feedback client/requests client/conversations client/profiles \
+      tour/releases tour/clients \
+      audit/browser-sessions audit/summaries audit/archive audit/signed-deploys audit/exceptions \
+      learnings/lessons \
+      .planning \
+      .github/workflows \
+      retros \
+  )
+
+  # Run propagate.sh into the target
+  echo "harness init: propagating constitution and hooks..."
+  ( cd "$HARNESS_ROOT" && bash propagate.sh "$target" )
+
+  # Symlink agents, skills, hooks into .claude/
+  echo "harness init: symlinking central agents/skills/hooks..."
+  ( cd "$target/.claude" && \
+      ln -sfn "$HARNESS_ROOT/agents" agents-central && \
+      ln -sfn "$HARNESS_ROOT/skills" skills-central && \
+      ln -sfn "$HARNESS_ROOT/hooks" hooks-central )
+
+  # Apply tier preset
+  local tier_file="$HARNESS_ROOT/tier-presets/tier${tier}.yaml"
+  if [ ! -f "$tier_file" ]; then
+    echo "harness init: tier preset not found: $tier_file" >&2
+    exit 2
+  fi
+  cp "$tier_file" "$target/.claude/tier.yaml"
+
+  # Project config
+  cat > "$target/harness.config.yaml" <<EOF
+project: $project_name
+tier: $tier
+created: $(date -u +%Y-%m-%d)
+harness_version: $(cd "$HARNESS_ROOT" && git rev-parse HEAD 2>/dev/null || echo unknown)
+languages: []
+data_classes: []
+regions: []
+client_channels: []
+design:
+  tool: claude-design
+EOF
+
+  # Stub learnings + open-questions
+  cat > "$target/learnings/failures.md" <<'EOF'
+# Failures Log — ERR-XXXX
+
+R4: a fix is not accepted until a regression test exists for the ERR-id and was RED on a prior commit.
+
+## Open
+
+_(none yet)_
+
+## Resolved
+
+_(none yet)_
+EOF
+
+  cat > "$target/learnings/patterns.md" <<'EOF'
+# Patterns Log
+
+Reusable patterns earned from work, retros, and Web Watcher findings.
+EOF
+
+  cat > "$target/spec/open-questions.md" <<'EOF'
+# Open Questions
+
+Red cards from Example Mapping. They stay red until the human answers.
+
+EOF
+
+  cat > "$target/pm/decisions.log.md" <<'EOF'
+# PM Decisions Log
+
+Append-only. R2 dissent recorded here.
+EOF
+
+  # Initialize git (the initial commit may fail in environments with custom signing — that's OK)
+  ( cd "$target" && git init -q && git add . && \
+    ( git -c user.email="harness@local" -c user.name="harness init" \
+          commit -q -m "init: scaffold tier-${tier} project under harness" \
+      || echo "harness init: initial git commit skipped (commit signing or hooks blocked it); commit manually when ready." ) )
+
+  echo
+  echo "Success — project initialized at: $target"
+  echo
+  echo "State change: (nothing) -> PLANNED"
+  echo "What it means: a tier-${tier} project skeleton exists, with the harness propagated."
+  echo
+  echo "Next steps:"
+  echo "  1. cd $target"
+  echo "  2. Edit pm/concept-brief.md (template at $HARNESS_ROOT/templates/concept-brief.md)."
+  echo "  3. Run claude in this directory; the constitution loads automatically."
+  echo "  4. When ready, ask Claude: 'Read pm/concept-brief.md and run the Concept Coach.'"
+  echo
+  echo "To resume later: harness resume   (run from inside $target)"
+}
+
+# ----------------------------------------------------------------------
+# harness resume / sync — pull harness updates, three-way-merge overrides.
+# ----------------------------------------------------------------------
+cmd_sync() {
+  local launch_claude="${1:-no}"
+
+  if [ ! -f .harness-version ]; then
+    echo "harness sync: not in a harness-managed project (no .harness-version found)." >&2
+    exit 2
+  fi
+
+  local pinned
+  pinned=$(cat .harness-version)
+  echo "harness sync: pinned at $pinned"
+
+  echo "harness sync: pulling latest harness from $HARNESS_ROOT..."
+  ( cd "$HARNESS_ROOT" && git fetch -q origin && git checkout -q main && git pull -q origin main ) || true
+
+  local current
+  current=$(cd "$HARNESS_ROOT" && git rev-parse HEAD)
+
+  if [ "$pinned" = "$current" ]; then
+    echo "harness sync: already up to date ($current)"
+  else
+    echo "harness sync: updates available: $pinned -> $current"
+
+    echo "harness sync: applying propagate.sh (overrides preserved)..."
+    bash "$HARNESS_ROOT/propagate.sh" "$PWD"
+
+    echo "harness sync: summary of changes since pinned version:"
+    ( cd "$HARNESS_ROOT" && git log --oneline "$pinned..$current" 2>/dev/null || git log --oneline -10 ) | sed 's/^/  /'
+  fi
+
+  if [ "$launch_claude" = "claude" ]; then
+    if command -v claude >/dev/null 2>&1; then
+      echo "harness resume: launching claude..."
+      exec claude
+    else
+      echo "harness resume: 'claude' CLI not on PATH. Install Claude Code or run 'claude' yourself."
+    fi
+  fi
+}
+
+# ----------------------------------------------------------------------
+# harness retro — open this week's retro file in $EDITOR.
+# ----------------------------------------------------------------------
+cmd_retro() {
+  if [ ! -f .harness-version ]; then
+    echo "harness retro: not in a harness-managed project." >&2
+    exit 2
+  fi
+
+  mkdir -p retros
+  local week
+  week=$(date -u +%Y-W%V)
+  local retro_file="retros/${week}.md"
+
+  if [ ! -f "$retro_file" ]; then
+    if [ -f "$HARNESS_ROOT/templates/retro.md" ]; then
+      cp "$HARNESS_ROOT/templates/retro.md" "$retro_file"
+      sed -i "s|<YYYY-WWW>|$week|g; s|<YYYY-MM-DD Friday>|$(date -u +%Y-%m-%d)|g" "$retro_file" || true
+    else
+      echo "# Friday Retro — $week" > "$retro_file"
+    fi
+  fi
+
+  local editor="${EDITOR:-vi}"
+  echo "harness retro: opening $retro_file in $editor"
+  "$editor" "$retro_file"
+}
+
+# ----------------------------------------------------------------------
+# harness status — show current project state.
+# ----------------------------------------------------------------------
+cmd_status() {
+  if [ ! -f .harness-version ]; then
+    echo "harness status: not in a harness-managed project." >&2
+    exit 2
+  fi
+
+  local project tier
+  project=$(grep -E '^project:' harness.config.yaml 2>/dev/null | head -1 | awk '{print $2}' || echo unknown)
+  tier=$(grep -E '^tier:' harness.config.yaml 2>/dev/null | head -1 | awk '{print $2}' || echo unknown)
+
+  echo
+  echo "Status — project: $project"
+  echo "Tier: T${tier}"
+  echo "Harness pinned at: $(cat .harness-version)"
+  echo
+
+  echo "Open requests:"
+  if [ -d client/requests ]; then
+    local open=0
+    if compgen -G "client/requests/REQ-*.md" >/dev/null 2>&1; then
+      open=$(grep -lE '^state:[[:space:]]+(RECEIVED|CLARIFYING|SCOPED|PAIRED|IN_FLIGHT|READY_FOR_HUMAN_APPROVAL|SHIPPED_BEHIND_FLAG|ROLLING_OUT)' client/requests/REQ-*.md 2>/dev/null | wc -l | tr -d ' \n' || echo 0)
+    fi
+    echo "  $open open"
+  else
+    echo "  client/requests/ not present"
+  fi
+
+  echo
+  echo "Pending decisions (DDR / ADR with status: proposed):"
+  if [ -d arch/adr ]; then
+    grep -l "^status: proposed" arch/adr/*.md 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+  fi
+  if [ -d design/decisions ]; then
+    grep -l "^status: proposed" design/decisions/*.md 2>/dev/null | sed 's/^/  /' || true
+  fi
+
+  echo
+  echo "Open ERRs (R4 watch):"
+  if [ -f learnings/failures.md ]; then
+    local errs=0
+    errs=$(grep -cE '^## ERR-[0-9]+' learnings/failures.md 2>/dev/null) || errs=0
+    errs="${errs//[[:space:]]/}"
+    echo "  $errs entries in learnings/failures.md"
+  else
+    echo "  learnings/failures.md not present"
+  fi
+
+  echo
+  echo "Last retro:"
+  if [ -d retros ]; then
+    ls -1 retros/ 2>/dev/null | sort | tail -1 | sed 's/^/  /' || echo "  (none)"
+  else
+    echo "  retros/ not present"
+  fi
+
+  echo
+  echo "Active flag states (per harness/flags.yaml):"
+  if [ -f client/flags.yaml ]; then
+    head -20 client/flags.yaml | sed 's/^/  /'
+  else
+    echo "  client/flags.yaml not present (Memory Custodian rebuilds nightly)"
+  fi
+  echo
+}
+
+# ----------------------------------------------------------------------
+# harness sign-deploy — generate a signed approval token (Hard Rail #4).
+# ----------------------------------------------------------------------
+cmd_sign_deploy() {
+  if [ ! -f .harness-version ]; then
+    echo "harness sign-deploy: not in a harness-managed project." >&2
+    exit 2
+  fi
+
+  mkdir -p audit/signed-deploys
+  local ts
+  ts=$(date -u +%Y%m%dT%H%M%SZ)
+  local token
+  token=$(printf "%s-%s-%s" "$ts" "$(git rev-parse HEAD)" "$(whoami)" | shasum -a 256 | awk '{print $1}')
+  local file="audit/signed-deploys/${ts}-${token:0:12}.token"
+
+  cat > "$file" <<EOF
+# Signed deploy approval (Hard Rail #4)
+# Generated: $ts
+# By: $(whoami)
+# Commit: $(git rev-parse HEAD)
+# Project: $(grep -E '^project:' harness.config.yaml 2>/dev/null | awk '{print $2}')
+# Tier: $(grep -E '^tier:' harness.config.yaml 2>/dev/null | awk '{print $2}')
+
+token: $token
+
+# Paste this token into the ACTION REQUIRED Promoter conversation to authorize prod deploy.
+# This token is valid for one (1) production deploy of the commit above.
+EOF
+
+  echo "Token written to: $file"
+  echo "Token: $token"
+  echo
+  echo "Reply to the Promoter with this token to authorize the production deploy."
+}
+
+# ----------------------------------------------------------------------
+# Dispatch
+# ----------------------------------------------------------------------
+case "${1:-help}" in
+  init)
+    shift
+    cmd_init "$@"
+    ;;
+  resume)
+    cmd_sync "claude"
+    ;;
+  sync)
+    cmd_sync "no"
+    ;;
+  retro)
+    cmd_retro
+    ;;
+  status)
+    cmd_status
+    ;;
+  sign-deploy)
+    cmd_sign_deploy
+    ;;
+  help|--help|-h)
+    print_usage
+    ;;
+  *)
+    echo "harness: unknown subcommand: $1" >&2
+    print_usage
+    exit 2
+    ;;
+esac

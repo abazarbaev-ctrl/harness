@@ -43,3 +43,21 @@ Every harness-to-human message uses one of: STATUS UPDATE, DECISION NEEDED, ACTI
 
 ## The Pruning Rule
 Every component must demonstrably prevent a failure class or unlock a capability class. If you can't articulate the failure it prevents, delete it.
+
+## Where the harness lives in this project
+
+A project under the harness has these structural pieces — verify they exist:
+
+- `.claude/agents-central/` → symlink to the central harness `agents/`. Each subfolder (pm/, design/, eng/, client/, monitor/, browser/, selfimp/, mission/, memory/) holds the 22 agent system prompts. Invoke an agent by name; its prompt is at `.claude/agents-central/<group>/<name>.md`.
+- `.claude/skills-central/` → symlink to the central `skills/`. The 8 named skills (`tdd-red-green-refactor`, `bdd-example-mapping`, `mom-test-interview`, `three-approach-design`, `necessity-detector`, `state-clarifier`, `five-exceptions-check`, `ralph-loop`).
+- `.claude/templates-central/` → symlink to the central `templates/`. PRD, scenarios.feature, mockup-spec, ADR/DDR, phase-plan, hypothesis, A/B-test-design, experiment-result, request, change-tour, retro, error-report, etc.
+- `.claude/tier.yaml` → this project's tier preset (T0–T3). Declares which gates, hooks, agents, and skills are mandatory.
+- `.claude/hooks/` → the live Claude Code hook scripts wired through `.claude/settings.json` (PreToolUse, PostToolUse, UserPromptSubmit, PreCompact) and into `.git/hooks/` (pre-commit, pre-push, post-commit).
+- `harness.config.yaml` → project metadata (name, tier, harness version pin, languages, channels).
+- `.harness-version` → the commit of the central harness this project is pinned to. `harness sync` updates it.
+
+If any of `.claude/{agents,skills,templates}-central` is missing or stale, the harness is not fully live here — run `harness sync` (or, in this session, ask Claude to run `bash /path/to/harness/propagate.sh "$PWD"`).
+
+## Standard handoff order
+
+Discover (PM) → Constitute (PM + Eng) → Plan (Eng Orchestrator) → Execute (Test-Writer → Builder → Validator → Judge → Promoter) → Harden & Release. Design engages only when the Necessity Detector returns ENGAGE. Client + Monitor + Browser + Self-Improvement + Mission + Memory subsystems run alongside per their own cadences (event-driven, weekly, nightly).

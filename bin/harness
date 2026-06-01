@@ -64,6 +64,18 @@ Usage:
       Wraps vitest --related / jest --changedSince / pytest-testmon. Fast
       iteration during a feature; the full suite still runs at gates.
 
+  harness features regenerate|show|mark <feature> <ac> pass|fail
+      Read/write the canonical .harness/feature_list.json — JSON ground truth
+      of what features exist and which acceptance criteria pass. Regenerated
+      from spec/prd/*.md frontmatter + acceptance-criteria checkboxes.
+      Preserves pass-state across regenerations.
+
+  harness session-start
+      Print the orientation ritual a fresh agent session should run:
+      pwd + last 30 progress lines + feature summary + last 5 commits +
+      init.sh status. ≤ 2KB of context to know exactly where the project
+      stands. See docs/SESSION-START.md.
+
   harness sign-deploy
       Generate a signed approval token to authorize a production deploy
       (Hard Rail #4). Writes to audit/signed-deploys/.
@@ -207,6 +219,18 @@ EOF
     ( git -c user.email="harness@local" -c user.name="harness init" \
           commit -q --no-verify -m "init: scaffold tier-${tier} project under harness" \
       || echo "harness init: initial git commit skipped (commit signing or hooks blocked it); commit manually when ready." ) )
+
+  # init.sh — copy template + make executable. First-real-work-of-the-project
+  # is filling in the project-specific placeholders (DEV_SERVER_CMD, etc.).
+  if [ -f "$HARNESS_ROOT/templates/init.sh" ]; then
+    cp "$HARNESS_ROOT/templates/init.sh" "$target/init.sh"
+    chmod +x "$target/init.sh"
+  fi
+
+  # Seed an empty progress log + run feature-list regenerate (no PRDs yet → 0 features)
+  mkdir -p "$target/.harness"
+  : > "$target/.harness/progress.log"
+  ( cd "$target" && HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_ROOT/bin/feature-list.py" regenerate >/dev/null 2>&1 || true )
 
   echo
   echo "Success — project initialized at: $target"
@@ -520,6 +544,58 @@ cmd_dashboard() {
 }
 
 # ----------------------------------------------------------------------
+# harness features — regenerate / show / mark the feature_list.json.
+# ----------------------------------------------------------------------
+cmd_features() {
+  if [ ! -f .harness-version ]; then
+    echo "harness features: not in a harness-managed project." >&2
+    exit 2
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo "harness features: python3 required." >&2; exit 2; }
+  HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/feature-list.py" "$@"
+}
+
+# ----------------------------------------------------------------------
+# harness session-start — the standardized orientation ritual.
+# Prints what a new agent session should read FIRST, in <2KB of context.
+# See docs/SESSION-START.md for the rationale.
+# ----------------------------------------------------------------------
+cmd_session_start() {
+  if [ ! -f .harness-version ]; then
+    echo "harness session-start: not in a harness-managed project." >&2
+    exit 2
+  fi
+  echo "=== session-start ritual ==="
+  echo "pwd: $PWD"
+  echo
+  echo "--- last 30 lines of .harness/progress.log ---"
+  if [ -s .harness/progress.log ]; then
+    tail -30 .harness/progress.log
+  else
+    echo "(empty — this is the first session, or the previous one didn't log)"
+  fi
+  echo
+  echo "--- feature_list.json summary ---"
+  if command -v python3 >/dev/null 2>&1 && [ -f "$HARNESS_BIN/feature-list.py" ]; then
+    HARNESS_ROOT="$HARNESS_ROOT" python3 "$HARNESS_BIN/feature-list.py" show 2>/dev/null || echo "(no feature_list.json yet — run 'harness features regenerate')"
+  fi
+  echo
+  echo "--- last 5 commits ---"
+  git log --oneline -5 2>/dev/null || echo "(no commits)"
+  echo
+  echo "--- init.sh status ---"
+  if [ ! -f init.sh ]; then
+    echo "MISSING — your first task is to author init.sh (template at \$HARNESS_ROOT/templates/init.sh)."
+  elif grep -q "TODO: set DEV_SERVER_CMD" init.sh; then
+    echo "STUB — init.sh exists but has placeholder TODOs. Fill in DEV_SERVER_CMD, DB_INIT_CMD, SMOKE_CMD."
+  else
+    echo "OK — bash init.sh / bash init.sh --smoke"
+  fi
+  echo
+  echo "Next: choose ONE feature from the list (state != GENERALLY AVAILABLE), or fill in init.sh if it's a stub. Do not start anything else first."
+}
+
+# ----------------------------------------------------------------------
 # harness changed — run only the tests affected by changes since BASE.
 # ----------------------------------------------------------------------
 cmd_changed() {
@@ -575,6 +651,13 @@ case "${1:-help}" in
   changed)
     shift
     cmd_changed "$@"
+    ;;
+  features)
+    shift
+    cmd_features "$@"
+    ;;
+  session-start)
+    cmd_session_start
     ;;
   daily)
     cmd_daily

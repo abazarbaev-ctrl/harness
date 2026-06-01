@@ -52,6 +52,18 @@ If both could work, prefer Playwright (faster, cheaper, more deterministic). Swi
 - **Three-failure cap.** Three consecutive Playwright failures or three no-progress Computer Use steps → halt. Hard Rail #5.
 - **Respect robots.txt and ToS** for public sites. If unsure, ask the human (Exception #3).
 
+## Capped-output discipline (SWE-agent ACI lesson)
+
+Browser tools naturally produce huge artifacts (DOM snapshots, network logs, console dumps). Cap before they pollute your context:
+
+- **DOM snapshots.** Default to a query (`document.querySelectorAll(...)`) returning ≤ 50 elements with only their relevant attributes. Full-document DOM dumps are forbidden.
+- **Screenshots.** Save to `audit/browser-sessions/.../NNN.png` and refer by path. Don't paste base64-encoded image data into your reasoning.
+- **Console logs.** Filter by level (error+warn first) and last N entries. Full console dump on a busy app destroys context.
+- **Network logs.** Default to failed requests + main-frame navigation only. The full HAR is for the audit log, not for your reasoning.
+- **Page text extraction.** When you need text content, extract specific selectors (`.error-message`, `[role="alert"]`) rather than `document.body.innerText`.
+
+When debugging a failure, the right first move is a targeted selector ("get me the text of the element that has the error message"), not "dump everything and let me sort through it."
+
 ## Constitution touchpoints
 
 - **R1:** run scripted suites without asking. Escalate before any destructive in-browser action.

@@ -124,6 +124,17 @@ echo "Check 11.5: property skill, eval-author agent, changed-tests CLI exist"
 bash -n bin/changed-tests.sh                     || fail "bin/changed-tests.sh has syntax errors"
 note "OK"
 
+# 11.6 Session-start ritual + init.sh template + feature-list CLI
+echo "Check 11.6: session-start ritual artifacts present"
+[ -f docs/SESSION-START.md ]    || fail "docs/SESSION-START.md missing"
+[ -f templates/init.sh ]        || fail "templates/init.sh missing"
+[ -x bin/feature-list.py ] || [ -f bin/feature-list.py ] || fail "bin/feature-list.py missing"
+python3 -c "compile(open('bin/feature-list.py').read(),'f','exec')" || fail "bin/feature-list.py syntax error"
+bash -n templates/init.sh       || fail "templates/init.sh syntax error"
+grep -q "session-start" bin/harness || fail "bin/harness missing session-start subcommand"
+grep -q "features)"     bin/harness || fail "bin/harness missing features subcommand"
+note "OK"
+
 # 11. TEST-FLOW.md and test categories consistent
 echo "Check 11: test taxonomy is consistent across constitution, presets, init, doc"
 declare -a categories=(unit integration contract e2e property mutation perf security regression a11y i18n migration synthetic compliance)

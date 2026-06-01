@@ -80,3 +80,18 @@ Every category has a home and a tier at which it becomes mandatory. See `docs/TE
 ## Standard handoff order
 
 Discover (PM) → Constitute (PM + Eng) → Plan (Eng Orchestrator) → Execute (Test-Writer → Builder → Validator → Judge → Promoter) → Harden & Release. Design engages only when the Necessity Detector returns ENGAGE. Client + Monitor + Browser + Self-Improvement + Mission + Memory subsystems run alongside per their own cadences (event-driven, weekly, nightly).
+
+## Session-start ritual
+
+Every coding session begins with a short, standardized orientation, *before* any feature work:
+
+1. `pwd`
+2. `tail -30 .harness/progress.log` — what the last session did
+3. `harness features show` (or `cat .harness/feature_list.json`) — what features exist, what passes
+4. `git log --oneline -5`
+5. `bash init.sh --smoke` — deterministically start the environment + verify it boots
+6. Then begin work on ONE feature (state ≠ GENERALLY AVAILABLE)
+
+If `init.sh` is missing or still has placeholder TODOs, **authoring it is the first task** — not the feature you came to work on. A broken environment is the work. See `docs/SESSION-START.md` for the rationale; run `harness session-start` to print the orientation digest.
+
+Every session **ends** symmetrically: update `.harness/feature_list.json` for anything verified-passing, append ≤ 5 lines to `.harness/progress.log` (what / why / state left), `git commit` (with `Refs-ERR:` if it was a bug fix).

@@ -170,3 +170,84 @@ Reusable patterns extracted from the work, the retros, and the Web Watcher's fin
   be massive scope explosion for zero gain over what Claude Code already gives us.
   Our value-add is the governance/methodology layer, not the substrate. Source:
   iii article, 2026-05-29. Status: rejected on sight.
+
+## PAT-0005 — Linter-rejects-bad-edit (immediate-feedback editor)
+- Source: SWE-agent paper + Anthropic harness engineering, 2026-05-31
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: cascading failures from syntax errors. An LLM
+  introduces a syntax error in an Edit; the next test run fails for what
+  looks like an unrelated reason; the agent spends multiple steps chasing
+  the wrong problem until context is exhausted. The SWE-agent paper's
+  ablation study showed the linter-on-edit integration was among the
+  highest-leverage components — catching the error at the moment of
+  introduction localizes the fix before it propagates.
+- Capability class unlocked: the file editor becomes self-correcting at
+  the syntax layer; agent token budget shifts from "debugging ghost
+  errors" to "fixing real ones."
+- Where it would live: a PostToolUse hook on Edit|Write that runs the
+  project's linter on just the edited file. If the linter exit > 0, the
+  hook exits 2 with the linter error in stderr. The agent's next move
+  is to either re-edit or revert. Tier preset declares which linter
+  (eslint / ruff / mypy / etc.); the hook reads from there.
+- Pruning review: 2026-05-31; status: speculative (awaiting retro #1).
+- Why not built immediately: needs project-specific linter wiring; the
+  tier presets declare linters but the per-project config (which lint
+  rules, severity threshold for reject) is real design work. Better to
+  see one Zeen edit fail this way in the wild, then build the hook
+  matched to the actual failure mode.
+
+## PAT-0006 — Throughput-aware merge philosophy
+- Source: OpenAI Codex harness engineering (Aug 2025–Feb 2026), 2026-05-31
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: blocking merge gates that made sense when humans
+  wrote every line of code become productivity killers when agents are
+  generating PRs at multiples of human review capacity. OpenAI: "test
+  flakes addressed with follow-up runs rather than blocking progress
+  indefinitely... when agent throughput far exceeds human attention,
+  corrections are cheap and waiting is expensive."
+- Capability class unlocked: a coherent rule for *when* to relax merge
+  gates and *which* ones. Avoids the failure mode where the operator
+  reflexively keeps strict gates from a low-throughput context and ends
+  up bottlenecking themselves.
+- Where it would live: a section in `docs/TEST-FLOW.md` or a new
+  `docs/THROUGHPUT.md` documenting:
+  • At low throughput (< 1 PR/day): keep all gates strict.
+  • At medium throughput (1–5 PR/day): allow flake-retry, auto-merge
+    docs-only and dependency-bump PRs.
+  • At high throughput (> 5 PR/day): allow auto-merge of anything that
+    passes the deterministic crosscheck + Judge ACCEPT + tier-mandatory
+    checks, even without human review.
+  Hard Rails and the four human gates stay in place at every throughput.
+- Pruning review: 2026-05-31; status: speculative (awaiting retro #1).
+- Why not built immediately: the user is currently a solo builder at
+  ~0 agent PRs/day. The framework is premature; the failure mode it
+  prevents is one the operator hasn't yet encountered. Worth keeping
+  as a doc-only PAT until throughput rises.
+
+## PAT-0007 — Initializer Agent as a formalized role
+- Source: Anthropic two-agent architecture (Initializer + Coding Agent), 2026-05-31
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: the "every session figures out the env from
+  scratch" tax. Anthropic's harness has a DISTINCT first session with a
+  distinct system prompt whose only job is scaffolding: init.sh, feature
+  list, progress log, first commit. Every subsequent session is a coding
+  agent that inherits that scaffolding. The role separation is what makes
+  the standardized session-start ritual actually deterministic.
+- Capability class unlocked: a named owner for the "scaffolding is the
+  work" insight. Today our CLI + Concept Coach + Spec Author collectively
+  cover this, but no single agent OWNS the standardized scaffolding
+  output. Formalizing it might tighten the loop.
+- Where it would live: `agents/pm/initializer.md` (or fold into Spec
+  Author with explicit "initialization sub-mode"). Triggered on the
+  first session of a new project; produces init.sh, feature_list.json,
+  progress.log, the first 1-2 PRDs, and the first commit. Then
+  hands off to the standard lifecycle.
+- Pruning review: 2026-05-31; status: speculative (awaiting retro #1).
+- Why not built immediately: our `harness init` + `templates/init.sh`
+  + `bin/feature-list.py` + the session-start ritual doc collectively
+  do what an Initializer Agent would do, just split across the CLI +
+  conventions instead of a single agent prompt. Naming it a separate
+  agent might be cosmetic. Decide at retro after the first Zeen session
+  uses the new init.sh + session-start flow — if the boundary feels
+  ragged in practice, name the agent; if it feels clean, this PAT
+  closes without implementation.

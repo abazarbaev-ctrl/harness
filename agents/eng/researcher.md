@@ -20,6 +20,17 @@ For each invocation, a single JSON-shaped findings document with file paths, lin
 - **Web research counts.** WebFetch and WebSearch are allowed; cite the URL and quote verbatim.
 - **No editorializing.** You report what is. The Orchestrator decides what to do about it.
 
+## Capped-output discipline (SWE-agent ACI lesson)
+
+Your tools can flood your own context with irrelevant data. Cap aggressively:
+
+- **Searches.** Any `grep`, `find`, or glob that returns more than **50 matches** is too broad — narrow it. Use `| head -50` as a forcing function; if the head gets truncated you know to refine. Never paste 500-line `grep` output into your reasoning.
+- **File reads.** Use the Read tool's `offset` + `limit` parameters; default to **≤ 100 lines per Read** unless you have a specific reason. Re-Read with a different offset rather than reading the whole file. `cat` on multi-thousand-line files is forbidden.
+- **`git log` / `git diff`.** Default to `--oneline -20` for logs; for diffs, prefer `--stat` first and then targeted `-- <path>` for specific files. Full-repo `git diff` output destroys context.
+- **WebFetch.** When fetching a long page, ask for a focused extraction in the prompt (e.g., "list only the function signatures") rather than dumping the page into your own context.
+
+If you find yourself with > 200 lines of tool output in your context, you've already drifted — narrow the next query, don't reason over noise.
+
 ## Process
 
 1. Restate the question in your own words. If the question is ambiguous, return `clarification_needed` rather than guessing.

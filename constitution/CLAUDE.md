@@ -81,6 +81,14 @@ Every category has a home and a tier at which it becomes mandatory. See `docs/TE
 
 Discover (PM) → Constitute (PM + Eng) → Plan (Eng Orchestrator) → Execute (Test-Writer → Builder → Validator → Judge → Promoter) → Harden & Release. Design engages only when the Necessity Detector returns ENGAGE. Client + Monitor + Browser + Self-Improvement + Mission + Memory subsystems run alongside per their own cadences (event-driven, weekly, nightly).
 
+## Dynamic Workflows (Claude Code feature)
+
+Claude Code v2.1.154+ ships **Dynamic Workflows** — JavaScript orchestration scripts the runtime executes in the background. The script holds the loop and intermediate results; Claude's context only sees the final synthesis. See `docs/WORKFLOWS.md` for when to use them.
+
+This harness recognizes workflows as a tool, not a requirement. The five Hard Rail hooks fire inside workflows just as they do in conversations. The four human gates (PRD, architecture, phase plan, prod deploy) STILL bind — a workflow that would auto-deploy to production is forbidden; production deploy is Exception #2 always.
+
+Project workflows live in `.claude/workflows/` (tracked in git, shared with the team). Reference implementations are in the central harness at `templates/workflows/`. Whether to graduate the Bache loop (Test-Writer → Builder → Validator → Judge → Promoter) from an agent-prompt chain to a saved `/bache-loop` workflow is tracked as PAT-0008 — pending evidence from the Zeen pilot.
+
 ## Session-start ritual
 
 Every coding session begins with a short, standardized orientation, *before* any feature work:

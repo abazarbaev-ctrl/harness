@@ -251,3 +251,42 @@ Reusable patterns extracted from the work, the retros, and the Web Watcher's fin
   uses the new init.sh + session-start flow — if the boundary feels
   ragged in practice, name the agent; if it feels clean, this PAT
   closes without implementation.
+
+## PAT-0008 — Graduate the Bache loop from agent-prompt-chain to a saved /bache-loop workflow
+- Source: Anthropic Dynamic Workflows in Claude Code v2.1.154+, 2026-06-03
+  (https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code)
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: the Bache loop (Test-Writer → Builder →
+  Validator → Judge → Promoter) is ordered. Today the ordering lives
+  in agents/eng/orchestrator.md's prose, plus the Orchestrator's
+  context. Failure modes the prose can't strictly prevent:
+    (a) Builder runs before Test-Writer reports tests_red.
+    (b) Judge ratifies a manifest the Validator didn't actually emit
+        (or emitted partially).
+    (c) Promoter starts when the Judge said REJECT.
+    (d) Fresh-context boundary on Test-Writer/Validator is forgotten.
+  A Dynamic Workflow script makes ordering mechanical: the runtime
+  enforces step N+1 cannot start until step N returns.
+- Capability class unlocked: the loop becomes deterministic, replayable
+  ('/bache-loop feature=fraction-to-percentage refs_err=ERR-0001'),
+  resumable mid-pipeline, and observable via /workflows. Plus: it can
+  fan out at the per-AC level (run cross-checks in parallel after the
+  Builder reports green).
+- Where it would live: `.claude/workflows/bache-loop.js` in each
+  project, copied/derived from `templates/workflows/bache-loop.example.js`
+  in the central harness. The agents/eng/*.md prompts STAY (they're
+  the spec; the workflow is the executable implementation). If they
+  drift, the prompt wins and the workflow is regenerated.
+- Pruning review: 2026-06-03; status: speculative (awaiting retro #1).
+- Why not built immediately: the failure modes above are HYPOTHESES.
+  The Bache loop has never run end-to-end on a real Zeen feature.
+  Building a workflow to enforce ordering before observing the
+  ordering ever fail is exactly the build-before-validate failure mode
+  the harness exists to prevent. Run the Zeen fraction→percentage
+  pilot first; if the Orchestrator's prose discipline holds, this PAT
+  may auto-close at 3 retros without implementation. If the order
+  breaks even once, promote and implement immediately.
+- Related: the four human gates STILL bind. The workflow ends at the
+  Promoter's ACTION REQUIRED for prod deploy (Exception #2), never
+  auto-deploys. The five Hard Rail hooks fire inside the workflow's
+  subagent calls just as they do in conversations.

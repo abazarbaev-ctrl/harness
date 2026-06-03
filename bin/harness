@@ -227,6 +227,12 @@ EOF
     chmod +x "$target/init.sh"
   fi
 
+  # Workflows scaffold — empty .claude/workflows/ + README pointing at examples.
+  mkdir -p "$target/.claude/workflows"
+  if [ -f "$HARNESS_ROOT/templates/workflows/README.md" ]; then
+    cp "$HARNESS_ROOT/templates/workflows/README.md" "$target/.claude/workflows/README.md"
+  fi
+
   # Seed an empty progress log + run feature-list regenerate (no PRDs yet → 0 features)
   mkdir -p "$target/.harness"
   : > "$target/.harness/progress.log"

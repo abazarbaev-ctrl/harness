@@ -135,6 +135,17 @@ grep -q "session-start" bin/harness || fail "bin/harness missing session-start s
 grep -q "features)"     bin/harness || fail "bin/harness missing features subcommand"
 note "OK"
 
+# 11.7 Dynamic Workflows scaffold present
+echo "Check 11.7: workflows scaffold + reference examples present"
+[ -f docs/WORKFLOWS.md ]                                 || fail "docs/WORKFLOWS.md missing"
+[ -d templates/workflows ]                               || fail "templates/workflows/ missing"
+[ -f templates/workflows/README.md ]                     || fail "templates/workflows/README.md missing"
+[ -f templates/workflows/bache-loop.example.js ]         || fail "bache-loop.example.js missing"
+[ -f templates/workflows/feature-cross-check.example.js ] || fail "feature-cross-check.example.js missing"
+grep -q "PAT-0008" learnings/patterns.md                 || fail "PAT-0008 (workflow graduation) not logged"
+grep -q "Dynamic Workflows" constitution/CLAUDE.md       || fail "constitution doesn't mention Dynamic Workflows"
+note "OK"
+
 # 11. TEST-FLOW.md and test categories consistent
 echo "Check 11: test taxonomy is consistent across constitution, presets, init, doc"
 declare -a categories=(unit integration contract e2e property mutation perf security regression a11y i18n migration synthetic compliance)

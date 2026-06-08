@@ -290,3 +290,92 @@ Reusable patterns extracted from the work, the retros, and the Web Watcher's fin
   Promoter's ACTION REQUIRED for prod deploy (Exception #2), never
   auto-deploys. The five Hard Rail hooks fire inside the workflow's
   subagent calls just as they do in conversations.
+
+## PAT-0009 — MCP server presets keyed by project stack
+- Source: ECC harness (affaan-m/ecc, mcp-configs/mcp-servers.json), 2026-06-03
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: every new project rediscovers which MCP servers
+  it needs (GitHub for code+issues, Playwright for E2E, PostHog for
+  telemetry, Supabase for DB, Vercel for deploy, Stripe for billing, etc.).
+  Currently `harness init` doesn't seed any. Each project's first session
+  burns time figuring out which MCPs to wire and where to put their config.
+- Capability class unlocked: `harness init <project> --stack=nextjs-prisma-vercel`
+  (or detected from package.json) seeds `.claude/mcp.json` with the right
+  preset. Aligns with our other init scaffolding (init.sh template,
+  workflows/README seed).
+- Where it would live:
+    templates/mcp-presets/nextjs-prisma-vercel.json
+    templates/mcp-presets/fastapi-postgres.json
+    templates/mcp-presets/static-site.json
+    templates/mcp-presets/README.md
+  Plus a `harness init --stack=...` flag (or auto-detection from package.json
+  + pyproject.toml). For Zeen specifically: GitHub MCP + Playwright MCP +
+  PostHog MCP.
+- Pruning review: 2026-06-03; status: speculative (awaiting retro #1).
+- Why not built immediately: building 5–7 preset JSONs on speculation is
+  exactly the breadth-over-depth pattern ECC's 261 skills exemplify and the
+  Pruning Rule warns against. Wait until Zeen's first MCP wiring shows
+  which preset would have saved real friction; build that one preset, not
+  a library.
+
+## PAT-0010 — contexts/ mode-specific system prompt injection
+- Source: ECC harness (affaan-m/ecc, contexts/dev.md+review.md+research.md), 2026-06-03
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: today a Claude session can't be put into a
+  durable "I'm reviewing this week's outputs, explain don't act" mode, or
+  a durable "I'm researching, don't write code, cite sources" mode. The
+  operator has to re-state the mode each turn. ECC adds short context files
+  injected at session-mode set time.
+- Capability class unlocked: `/mode research` / `/mode review` / `/mode build`
+  (or similar) sets a session flag; UserPromptSubmit hook reads it and
+  appends the corresponding `contexts/<mode>.md` to every prompt for the
+  remainder of the session.
+- Where it would live:
+    contexts/research.md (Mom Test discipline + capped-output + cite-or-kill)
+    contexts/review.md (explain, don't edit; surface candidates for retro)
+    contexts/build.md (the Bache loop discipline + R4 + state taxonomy)
+    hooks/userpromptsubmit/mode-injector.sh
+- Pruning review: 2026-06-03; status: speculative (awaiting retro #1).
+- Why not built immediately: Claude Code has native plan/auto/effort modes
+  that may already cover the relevant axes. Don't add a parallel mode
+  system before seeing whether the native one falls short on a real Zeen
+  task. If a Zeen retro reports "I kept having to re-instruct Claude to
+  stay in research mode," promote this PAT and build it.
+
+## PAT-0011 — Claude Code plugin manifest for one-command distribution
+- Source: ECC harness (affaan-m/ecc, .claude-plugin/ directory), 2026-06-03
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: today our harness installs via clone +
+  propagate.sh + manual PATH symlink. Three steps. A Claude Code plugin
+  manifest would let `claude plugins install <ours>` do it all.
+- Capability class unlocked: lower-friction distribution if/when the
+  harness is shared beyond the operator. Per V1 §3.12 the harness is
+  meant to be the central authority across multiple projects — easier
+  install = more projects under the harness = the Pruning Rule running
+  on more retros = better harness.
+- Where it would live:
+    .claude-plugin/plugin.json (manifest)
+    .claude-plugin/post-install.sh (run propagate.sh into target)
+- Pruning review: 2026-06-03; status: speculative (awaiting retro #1).
+- Why not built immediately: (a) Claude Code plugin spec is still
+  evolving; coupling now risks rework. (b) the harness currently has one
+  user (you) on two projects (the harness itself + Zeen). Distribution is
+  not yet a friction. Build when a third project under the harness is on
+  the horizon.
+
+## PAT-0012 — Per-language rules/ directory (deliberate skeptical log)
+- Source: ECC harness (affaan-m/ecc, rules/typescript/+python/+golang/+...), 2026-06-03
+- Date promoted: candidate (not yet promoted)
+- Failure class prevented: agents writing inconsistent code across files in
+  a greenfield project. ECC's pattern: per-language style + testing +
+  patterns rules that always apply.
+- Capability class unlocked: in theory, code consistency without relying
+  on the project having an existing style to match.
+- Honest skepticism: the project's actual tooling configs (eslint, ruff,
+  black, gofmt, prettier) already enforce most of this MECHANICALLY. Prose
+  rules duplicate the mechanical config and rot when the config changes.
+  Probably the wrong level of abstraction for our discipline-over-breadth
+  posture.
+- Pruning review: 2026-06-03; status: SPECULATIVE WITH HEAVY PRIOR-AGAINST.
+  Logged for retro completeness but expected to auto-close at 3 retros
+  unless evidence surfaces that tooling configs aren't enough.

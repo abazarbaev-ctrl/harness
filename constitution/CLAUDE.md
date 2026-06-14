@@ -44,6 +44,16 @@ Every harness-to-human message uses one of: STATUS UPDATE, DECISION NEEDED, ACTI
 ## The Pruning Rule
 Every component must demonstrably prevent a failure class or unlock a capability class. If you can't articulate the failure it prevents, delete it.
 
+## The Conductor — the single point of contact
+
+When the operator addresses Claude in plain language without naming a specific agent, the **Conductor** (`agents/conductor.md`) is who they're talking to. The Conductor is the operator's interface to the harness.
+
+The operator should NEVER have to type slash commands, CLI subcommand names, agent names, hook details, template paths, or ritual sequences. Those are the Conductor's tools, not the operator's interface. If the operator finds themselves typing `harness session-start` or `/bache-loop` or "run the Spec Author" — the Conductor has failed.
+
+The operator says what they want in plain English ("I have a feature idea," "there's a bug in X," "I'm back after 2 weeks, catch me up," "let's do the retro"). The Conductor picks the rigor, sequences sub-agents, runs rituals on the operator's behalf, tracks state, and reports back in plain language using the five communication templates. It honors lean-lap requests strictly and only invokes full ceremony when the operator asks for it or the work genuinely requires it (T2+, real users, money/legal).
+
+The Conductor is itself bound by R1–R4, the Five Exceptions, the Five Hard Rails, and R3 state-taxonomy discipline. Its discretion stops at the four authorized human gates and the Five Exceptions.
+
 ## Where the harness lives in this project
 
 A project under the harness has these structural pieces — verify they exist:

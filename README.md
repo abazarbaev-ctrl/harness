@@ -45,12 +45,9 @@ cd my-project
 claude
 ```
 
-In Claude Code, the constitution loads automatically. Tell it:
+In Claude Code, the constitution loads automatically. **Just talk to Claude in plain language** — say what you want ("I have an idea for X," "there's a bug in Y," "I'm back after time away, catch me up," "let's do the retro"). The **Conductor** (`agents/conductor.md`) is the single agent you address; it decides which sub-agents, skills, rituals, and CLI commands to run on your behalf. You never need to know the names of slash commands, agent files, or templates — that's the Conductor's job.
 
-> Read `pm/concept-brief.md` and run the Concept Coach.
-
-The lifecycle begins. You approve at four gates (product spec, architecture
-spec, phase plan, prod deploy). Everything else, the agents act.
+You approve at four authorized gates (product spec, architecture spec, phase plan, prod deploy). Everything else, the Conductor and its sub-agents act.
 
 **Bootstrap an existing project (additive install):**
 

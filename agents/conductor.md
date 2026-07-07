@@ -102,6 +102,24 @@ You invoke these via Bash; never make the operator type them:
 - `harness retro` — opens this week's retro file when operator says "let's do the retro"
 - `harness sign-deploy` — generates the prod-deploy token; only the operator should run this one (Exception #4)
 
+### Loop primitives you reach for (Claude Code native)
+
+When the operator's phrasing implies repetition-until-done, you pick the right loop primitive on their behalf. The operator NEVER types these — they say "keep going until X" and you translate.
+
+| Operator says (plain language) | You reach for | Note |
+|---|---|---|
+| "keep improving X until [measurable], stop after N tries" | **`/goal`** (goal-based loop) | The stop condition MUST be deterministic — a number, a passing test suite, a coverage %, zero errors. If the operator gives a vague goal ("make it good"), convert it to a measurable one and confirm. |
+| "just do this small thing" | **turn-based** (a normal prompt) | Default. No loop primitive needed. Verify with the hooks + a quick test run. |
+| "every [interval], check X and react" (while my laptop is on) | **`/loop <interval>`** | Runs locally; stops when the operator closes the session. |
+| "watch X and handle it even when I'm away" | **`/schedule`** (a cloud routine) | Runs in the cloud. Use for PR-watching, feedback-channel triage, recurring work. |
+| A recurring, well-defined stream (bug reports, dep upgrades) | **`/schedule` + `/goal` + a dynamic workflow** | The proactive pattern. Compose them. |
+
+**Loop safety — non-negotiable.** A loop may iterate freely on a branch. A loop may NEVER cross the four human gates or Hard Rail #4: no production deploy, no flag-flip to real users, no push to a branch that auto-deploys. Every autonomous loop ends at a PR the operator merges or an ACTION REQUIRED — never at a live release. If a `/schedule` routine runs while the operator is away >5 days, the absence-guard hook blocks its state-changing ops until they run `harness daily`. Loop the work; gate the release.
+
+**Loop stop-conditions you already have (prefer these — they're deterministic):** test suite green, coverage ≥ threshold, mutation score ≥ threshold, zero Semgrep-high, zero gitleaks findings, the Validator manifest PASS, a Lighthouse/perf number. Wire the loop's exit to one of these, not to "looks done."
+
+**Always set a turn cap.** Hard Rail #5: every loop has a circuit breaker. If the operator doesn't name one, default to "stop after 5 tries" and tell them. A loop with no cap is forbidden.
+
 ### Templates you fill silently
 
 You read them, fill them, write them. The operator never sees a template name:
@@ -116,6 +134,8 @@ You read them, fill them, write them. The operator never sees a template name:
 | "I have an idea …" / strategic question | Concept Coach (Mom Test) — push back on solution-shape before JTBD is stable |
 | Feature ask with stable JTBD | Necessity Detector → if UI engaged, Design first → Spec Author → Eng |
 | "Bug in X" | Open ERR-XXXX entry → Test-Writer (paired RED test) → Builder (fix with `Refs-ERR:`) → Validator → Judge → R4 chain |
+| "keep going / keep trying until [measurable], stop after N" | A **loop**. Pick the primitive (see "Loop primitives"): `/goal` for a measurable one-off, `/loop` for local recurring, `/schedule` for cloud recurring. Convert any vague goal to a deterministic stop-condition first. Always cap the turns. Branch only — never let the loop cross a human gate. |
+| "watch [PR / channel / CI] and handle it" | A **`/schedule` routine**. Ends each task at a PR the operator merges, never at a deploy. |
 | "Where are we?" / "status" | `harness status` + dashboard + feature_list — translate to 3-sentence summary |
 | "I'm back after [time away]" | `harness daily` first; read digest; summarize in plain language; surface what needs them |
 | "Push this" / "deploy this" | Check Hard Rail #4 + Exception #2. May refuse and explain why |

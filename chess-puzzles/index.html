@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Checkmate Workbook</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Playable chess puzzle workbook. Open your own PDF of Polgár's 5334 problems and play them in 2D or 3D, or practise generated mates.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">Checkmate <em>Workbook</em></span>
+  </div>
+  <label class="chapter-pick">
+    <span class="eyebrow">Chapter</span>
+    <select id="chapter"></select>
+  </label>
+  <button id="profile-chip" class="ghost profile-chip" title="Switch player">Choose player</button>
+ <label id="load-book-top" class="load-book-btn" title="Open your PDF of the Polgár book">Load book
+    <input id="book-file-top" type="file" accept="application/pdf,.pdf" hidden>
+  </label>
+  <button id="open-appearance" class="ghost appearance-btn" aria-controls="appearance" aria-expanded="false">
+    <span class="swatch-pair" aria-hidden="true"><i></i><i></i></span><span class="btn-label">Appearance</span>
+  </button>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Puzzle">
+    <div class="plate">
+      <div class="plate-head">
+        <h1 id="pz-number" class="pz-number"></h1>
+        <div class="plate-meta">
+          <span id="pz-turn" class="turn-dot" aria-hidden="true"></span>
+          <span id="pz-task" class="pz-task"></span>
+        </div>
+      </div>
+      <div class="board-frame">
+        <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+        <div id="board3d" class="board3d" hidden>
+          <button id="reset-view" class="ghost tiny view-reset" title="Reset the camera">Reset view</button>
+          <p id="board3d-msg" class="board3d-msg"></p>
+        </div>
+        <div id="promo" class="promo" hidden></div>
+      </div>
+      <p id="pz-source" class="source"></p>
+      <p id="status" class="status" aria-live="polite"></p>
+    </div>
+
+    <div class="toolbar" role="toolbar" aria-label="Puzzle controls">
+      <button id="prev" class="ghost" title="Previous puzzle (←)">← Prev</button>
+      <button id="reset" class="ghost" title="Restart this puzzle (R)">Retry</button>
+      <button id="hint" class="ghost" title="Highlight the piece to move (H)">Hint</button>
+      <button id="solution" class="ghost" title="Play the solution (S)">Solution</button>
+      <button id="flip" class="ghost" title="Flip board (F)">Flip</button>
+      <div class="seg" role="group" aria-label="Board view">
+        <button id="view-2d" class="seg-btn" aria-pressed="true">2D</button>
+        <button id="view-3d" class="seg-btn" aria-pressed="false">3D</button>
+      </div>
+      <button id="next" class="primary" title="Next puzzle (→)">Next →</button>
+    </div>
+  </section>
+
+  <aside class="side">
+    <section class="panel contest-panel">
+      <div class="contest-head">
+        <div>
+          <p class="eyebrow">Contest</p>
+          <h2>Leaderboard</h2>
+        </div>
+        <button id="switch-player" class="ghost tiny">Players</button>
+      </div>
+      <ol id="contest-list" class="contest-list"></ol>
+      <p id="contest-note" class="muted small contest-note"></p>
+    </section>
+
+    <section class="panel book-panel">
+      <div id="book-load">
+        <p class="eyebrow">Your book</p>
+        <h2>Play the Polgár book</h2>
+        <p class="muted small">Have <em>Chess: 5334 Problems, Combinations and Games</em> as a PDF?
+          Open it here to play every problem with the same numbers as the book and the book's answers.
+          The file is read in your browser and is never uploaded.</p>
+        <label class="file-btn">Open the book PDF…
+          <input id="book-file" type="file" accept="application/pdf,.pdf" hidden>
+        </label>
+      </div>
+      <div id="book-loaded" hidden>
+        <p class="eyebrow">Your book</p>
+        <h2>Polgár book loaded</h2>
+        <p class="muted small"><span id="book-count"></span> puzzles from your copy, saved in this browser.
+          Choose a “Polgár” chapter from the menu at the top.</p>
+        <button id="book-remove" class="link small">Remove the book from this browser</button>
+      </div>
+      <progress id="book-progress" max="1" value="0" hidden></progress>
+      <p id="book-status" class="small" aria-live="polite"></p>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">This chapter</p>
+      <h2 id="ch-title"></h2>
+      <p id="ch-desc" class="muted small"></p>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="muted small tabular"></p>
+      <select id="grid-range" class="grid-range" aria-label="Puzzle range" hidden></select>
+      <div id="grid" class="grid" aria-label="Puzzle index"></div>
+      <div class="legend small muted">
+        <span><i class="key solved"></i>Solved first try</span>
+        <span><i class="key failed"></i>Solved with help</span>
+      </div>
+      <button id="reset-progress" class="link small">Reset progress for this chapter</button>
+    </section>
+
+    <section class="panel">
+      <p class="eyebrow">Moves</p>
+      <ol id="moves" class="moves"></ol>
+      <div id="answer" class="answer" hidden>
+        <p class="eyebrow">Book answer</p>
+        <p id="answer-text" class="notation"></p>
+      </div>
+    </section>
+
+    <details class="panel">
+      <summary><span class="eyebrow">Add your own puzzles</span></summary>
+      <p class="muted small">Type in positions from a book you own, or anything else. Put one puzzle per line, either as
+        <code>FEN | mate in N</code> (N from 1 to 3, checked by the built-in solver) or as
+        <code>FEN | e2e4 e7e5 …</code> (a fixed solution in UCI or SAN).</p>
+      <textarea id="import-text" rows="5" spellcheck="false"
+        placeholder="6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1 | mate in 1"></textarea>
+      <div class="row">
+        <button id="import-btn" class="primary">Add to “My puzzles”</button>
+        <button id="clear-mine" class="link small">Delete my puzzles</button>
+      </div>
+      <p id="import-msg" class="small"></p>
+    </details>
+  </aside>
+</main>
+
+<div id="players" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="players-title">
+    <div class="modal-head">
+      <h2 id="players-title">Who’s playing?</h2>
+      <button id="players-close" class="ghost tiny">Close</button>
+    </div>
+    <p class="muted small">No sign-up needed. Each player keeps their own progress on this device, and everyone’s score appears on the leaderboard.</p>
+    <div id="player-list" class="player-list"></div>
+    <button id="add-player" class="ghost add-player">+ Add a player</button>
+    <form id="player-form" class="player-form" hidden>
+      <p id="player-form-title" class="eyebrow">New player</p>
+      <label class="field">Name
+        <input id="player-name" type="text" maxlength="24" autocomplete="nickname" placeholder="e.g. Judit" required>
+      </label>
+      <p class="field-label">Avatar</p>
+      <div id="avatar-pieces" class="avatar-pieces"></div>
+      <div id="avatar-colors" class="avatar-colors"></div>
+      <div class="row">
+        <button id="delete-player" type="button" class="link small danger">Delete player</button>
+        <span class="row-end">
+          <button id="cancel-player" type="button" class="ghost">Cancel</button>
+          <button id="save-player" type="submit" class="primary">Start playing</button>
+        </span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="appearance-scrim" class="scrim" hidden></div>
+<aside id="appearance" class="drawer" aria-label="Appearance" hidden>
+  <div class="drawer-head">
+    <h2>Appearance</h2>
+    <button id="close-appearance" class="ghost tiny" aria-label="Close appearance settings">Close</button>
+  </div>
+
+  <div class="drawer-body">
+    <section class="setting">
+      <p class="eyebrow">View</p>
+      <div class="seg wide" role="group" aria-label="Board view">
+        <button id="set-view-2d" class="seg-btn" aria-pressed="true">Flat 2D</button>
+        <button id="set-view-3d" class="seg-btn" aria-pressed="false">3D table</button>
+      </div>
+      <label class="check"><input id="set-coords" type="checkbox"> Show coordinates</label>
+    </section>
+
+    <section class="setting">
+      <p class="eyebrow">Board</p>
+      <div id="board-themes" class="swatches" role="radiogroup" aria-label="Board colours"></div>
+      <div class="custom-row">
+        <label>Light squares <input id="board-light" type="color"></label>
+        <label>Dark squares <input id="board-dark" type="color"></label>
+      </div>
+    </section>
+
+    <section class="setting">
+      <p class="eyebrow">Piece style</p>
+      <div id="piece-sets" class="sets" role="radiogroup" aria-label="Piece style"></div>
+    </section>
+
+    <section class="setting">
+      <p class="eyebrow">Piece colours</p>
+      <div id="piece-colors" class="swatches" role="radiogroup" aria-label="Piece colours"></div>
+      <div class="custom-row">
+        <label>White pieces <input id="piece-w" type="color"></label>
+        <label>Black pieces <input id="piece-b" type="color"></label>
+      </div>
+    </section>
+
+    <section class="setting preview-setting">
+      <p class="eyebrow">Preview</p>
+      <div id="preview" class="preview" aria-hidden="true"></div>
+    </section>
+  </div>
+</aside>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

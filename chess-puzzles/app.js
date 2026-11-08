@@ -1,0 +1,960 @@
+import { Chess } from './vendor/chess.js';
+import { CHAPTERS } from './puzzles.js';
+import { pieceSVG, PIECE_NAMES } from './pieces.js';
+import { allLose, bestDefence, mateKeys, mainLine, canMate } from './solver.js';
+import { parseBook, pageItems, BOOK_CHAPTERS } from './book.js';
+import {
+  settings, setSettings, onSettings, applyColors, boardColors, pieceColors, mix,
+  BOARD_THEMES, PIECE_COLORS, PIECE_SETS,
+} from './settings.js';
+import {
+  profiles, currentProfile, createProfile, updateProfile, switchProfile, deleteProfile, onProfilesChange,
+  loadProgress, saveProgress, statsOf, avatarHTML, AVATAR_PIECES, AVATAR_COLORS,
+  startContest, onContest, contestInfo, leaderboard, syncProfile,
+} from './profiles.js';
+
+const $ = id => document.getElementById(id);
+const FILES = 'abcdefgh';
+const MINE_KEY = 'cw-mine-v1';
+const PROGRESS_KEY = 'cw-progress-v1';
+
+// ---------- storage (best effort; the app works without it) ----------
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
+}
+function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ } }
+
+let progress = currentProfile() ? loadProgress(currentProfile().id) : load(PROGRESS_KEY, {});
+function persistProgress() {
+  const p = currentProfile();
+  if (p) { saveProgress(p.id, progress); syncProfile(p.id); renderProfileChip(); renderContest(); }
+  else save(PROGRESS_KEY, progress);
+}
+let mine = load(MINE_KEY, []);
+let bookPuzzles = null; // parsed from the reader's own PDF, kept in IndexedDB
+
+// ---------- IndexedDB (the parsed book is too big for localStorage) ----------
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('checkmate-workbook', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(key) {
+  try {
+    const db = await idb();
+    return await new Promise((res, rej) => {
+      const r = db.transaction('kv').objectStore('kv').get(key);
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  } catch { return undefined; }
+}
+async function idbSet(key, value) {
+  try {
+    const db = await idb();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite');
+      if (value === undefined) tx.objectStore('kv').delete(key); else tx.objectStore('kv').put(value, key);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch { /* ignore: the book stays loaded for this visit only */ }
+}
+
+const BOOK_TASK = {
+  'p-games': 'find the winning move',
+  'p-draw': 'White draws',
+  'p-win': 'White wins',
+  'p-sisters': 'find the combination',
+};
+
+function chapters() {
+  const list = [];
+  if (bookPuzzles) {
+    for (const c of BOOK_CHAPTERS) {
+      const puzzles = bookPuzzles.filter(p => p.chapter === c.id);
+      if (!puzzles.length) continue;
+      list.push({
+        id: c.id, title: `Polgár: ${c.title}`, mate: c.mate, book: true, task: BOOK_TASK[c.id],
+        desc: `Problems ${c.from}–${c.to} from your copy of the book. The numbers match the book.`,
+        puzzles,
+      });
+    }
+  }
+  for (const c of CHAPTERS) {
+    list.push({
+      ...c, title: `Practice: ${c.title}`,
+      puzzles: c.puzzles.map(([fen, line], i) => ({ id: `${c.id}-${i + 1}`, fen, line: line.split(' '), mate: c.mate })),
+    });
+  }
+  if (mine.length) {
+    list.push({
+      id: 'mine', title: 'My puzzles', mate: null,
+      desc: 'Positions you added yourself. Stored only in this browser.',
+      puzzles: mine.map((p, i) => ({ id: `mine-${i + 1}`, ...p })),
+    });
+  }
+  return list;
+}
+
+// ---------- state ----------
+let books = chapters();
+let chapterIdx = 0;
+let puzzleIdx = 0;
+let pz = null;          // current puzzle
+let game = null;        // chess.js instance
+let ply = 0;            // half-moves played from the start position
+let onLine = true;      // has play followed the stored main line?
+let helped = false;     // mistake, hint or solution used
+let done = false;
+let busy = false;       // opponent reply / solution playback in progress
+let flipped = false;
+let selected = null;
+let lastMove = null;
+let hintSq = null;
+let history = [];
+let timers = [];
+let animateNext = false; // animate the next rendered move in 3D
+
+const attacker = () => new Chess(pz.fen).turn();
+const movesLeft = () => pz.mate - Math.floor(ply / 2);
+
+// ---------- rendering ----------
+const boardEl = $('board');
+
+function orientation() {
+  const a = attacker();
+  return flipped ? (a === 'w' ? 'b' : 'w') : a;
+}
+
+function squareOrder() {
+  const out = [];
+  const white = orientation() === 'w';
+  for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+    const file = white ? f : 7 - f;
+    const rank = white ? 8 - r : r + 1;
+    out.push({ sq: FILES[file] + rank, showFile: r === 7, showRank: f === 0, light: (file + rank) % 2 === 1 });
+  }
+  return out;
+}
+
+let board3d = null, board3dLoading = null;
+
+function render() {
+  if (settings().view === '3d') render3d(); else render2d();
+  renderMoves();
+}
+
+function render3d() {
+  boardEl.hidden = true;
+  $('board3d').hidden = false;
+  if (!board3d) {
+    if (!board3dLoading) {
+      $('board3d-msg').textContent = 'Setting up the 3D board…';
+      board3dLoading = import('./board3d.js')
+        .then(m => m.createBoard3D($('board3d'), { onSquare: squareClicked }))
+        .then(b => { board3d = b; $('board3d-msg').textContent = 'Drag to turn the board · tap a piece, then a square'; render(); })
+        .catch(err => {
+          board3dLoading = null;
+          $('board3d-msg').textContent = '';
+          setStatus(`3D view is not available here (${err.message || err}). Showing the flat board.`, 'bad');
+          setSettings({ view: '2d' });
+        });
+    }
+    return;
+  }
+  const moves = selected ? game.moves({ square: selected, verbose: true }) : [];
+  const pieces = [];
+  for (const row of game.board()) for (const p of row) if (p) pieces.push(p);
+  const bc = boardColors(), pc = pieceColors();
+  board3d.update({
+    pieces, orientation: orientation(), selected, hint: hintSq, lastMove, ply,
+    targets: moves.map(m => m.to), occupied: new Set(moves.filter(m => m.captured).map(m => m.to)),
+    animate: animateNext, movedType: lastMove ? (game.get(lastMove.to) || {}).type : null,
+    coords: settings().coords,
+    colors: { light: bc.light, dark: bc.dark, frame: mix(bc.dark, '#1a120c', 0.45), w: pc.w, b: pc.b, coords: mix(bc.light, '#ffffff', 0.4) },
+  });
+  animateNext = false;
+}
+
+function render2d() {
+  boardEl.hidden = false;
+  $('board3d').hidden = true;
+  const targets = new Set(selected ? game.moves({ square: selected, verbose: true }).map(m => m.to) : []);
+  boardEl.innerHTML = '';
+  for (const { sq, showFile, showRank, light } of squareOrder()) {
+    const el = document.createElement('div');
+    el.className = 'sq ' + (light ? 'l' : 'd');
+    el.dataset.sq = sq;
+    if (lastMove && (lastMove.from === sq || lastMove.to === sq)) el.classList.add('last');
+    if (selected === sq) el.classList.add('sel');
+    if (hintSq === sq) el.classList.add('hint');
+    const p = game.get(sq);
+    if (targets.has(sq)) { el.classList.add('target'); if (p) el.classList.add('occupied'); }
+    el.setAttribute('role', 'gridcell');
+    el.setAttribute('aria-label', sq + (p ? ` ${p.color === 'w' ? 'white' : 'black'} ${PIECE_NAMES[p.type]}` : ''));
+    if (p) {
+      const pc = document.createElement('span');
+      pc.className = 'pc';
+      pc.innerHTML = pieceSVG(p.color, p.type);
+      el.appendChild(pc);
+    }
+    if (showFile) el.insertAdjacentHTML('beforeend', `<span class="coord file">${sq[0]}</span>`);
+    if (showRank) el.insertAdjacentHTML('beforeend', `<span class="coord rank">${sq[1]}</span>`);
+    boardEl.appendChild(el);
+  }
+}
+
+function renderMoves() {
+  const ol = $('moves');
+  ol.innerHTML = '';
+  const startBlack = attacker() === 'b';
+  const startNo = Number(pz.fen.split(' ')[5]) || 1;
+  const items = [];
+  let i = 0;
+  if (startBlack && history.length) { items.push(`… ${history[0]}`); i = 1; }
+  for (; i < history.length; i += 2) items.push(history[i] + (history[i + 1] ? `  ${history[i + 1]}` : ''));
+  ol.start = startNo;
+  for (const t of items) { const li = document.createElement('li'); li.textContent = t; ol.appendChild(li); }
+}
+
+function setStatus(text, kind = '') {
+  const s = $('status');
+  s.textContent = text;
+  s.className = 'status ' + kind;
+}
+
+function renderSide() {
+  const ch = books[chapterIdx];
+  $('ch-title').textContent = ch.title;
+  $('ch-desc').textContent = ch.desc;
+  const solved = ch.puzzles.filter(p => progress[p.id] === 'solved').length;
+  const tried = ch.puzzles.filter(p => progress[p.id]).length;
+  $('progress-bar').style.width = (100 * tried / ch.puzzles.length) + '%';
+  $('progress-text').textContent =
+    `${tried} of ${ch.puzzles.length} done · ${solved} solved first try`;
+  const PAGE = 100;
+  const pages = Math.ceil(ch.puzzles.length / PAGE);
+  const page = Math.floor(puzzleIdx / PAGE);
+  const range = $('grid-range');
+  range.hidden = pages < 2;
+  range.innerHTML = '';
+  for (let k = 0; k < pages; k++) {
+    const a = ch.puzzles[k * PAGE], b = ch.puzzles[Math.min(ch.puzzles.length, (k + 1) * PAGE) - 1];
+    const o = document.createElement('option');
+    o.value = k; o.textContent = `No. ${a.number || k * PAGE + 1} – ${b.number || Math.min(ch.puzzles.length, (k + 1) * PAGE)}`;
+    range.appendChild(o);
+  }
+  range.value = page;
+  range.onchange = () => openPuzzle(chapterIdx, Number(range.value) * PAGE);
+  const grid = $('grid');
+  grid.innerHTML = '';
+  ch.puzzles.slice(page * PAGE, (page + 1) * PAGE).forEach((p, j) => {
+    const i = page * PAGE + j;
+    const b = document.createElement('button');
+    b.textContent = p.number || i + 1;
+    b.title = `Puzzle ${p.number || i + 1}`;
+    if (progress[p.id]) b.classList.add(progress[p.id]);
+    if (i === puzzleIdx) b.classList.add('current');
+    b.onclick = () => openPuzzle(chapterIdx, i);
+    grid.appendChild(b);
+  });
+  const cur = grid.querySelector('.current');
+  if (cur) grid.scrollTop = cur.offsetTop - grid.offsetTop - grid.clientHeight / 2;
+  $('prev').disabled = chapterIdx === 0 && puzzleIdx === 0;
+}
+
+function renderChapterSelect() {
+  const sel = $('chapter');
+  sel.innerHTML = '';
+  books.forEach((c, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${c.title} (${c.puzzles.length})`;
+    sel.appendChild(o);
+  });
+  sel.value = chapterIdx;
+}
+
+// ---------- puzzle flow ----------
+function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
+
+function taskText() {
+  const side = attacker() === 'w' ? 'White' : 'Black';
+  if (pz.mate) return `${side} to move · mate in ${pz.mate}`;
+  const t = books[chapterIdx].task;
+  if (t && t.startsWith('White')) return t.replace('White', side);
+  return `${side} to move · ${t || 'find the best line'}`;
+}
+
+function openPuzzle(ci, pi, { keepFlip = false } = {}) {
+  clearTimers();
+  chapterIdx = ci; puzzleIdx = pi;
+  pz = books[ci].puzzles[pi];
+  game = new Chess(pz.fen);
+  ply = 0; onLine = true; helped = false; done = false; busy = false;
+  selected = null; lastMove = null; hintSq = null; history = [];
+  if (!keepFlip) flipped = false;
+  $('pz-number').textContent = `No. ${pz.number || pi + 1}`;
+  $('pz-turn').className = 'turn-dot ' + attacker();
+  $('pz-source').textContent = pz.source || '';
+  $('answer').hidden = true;
+  $('pz-task').textContent = taskText();
+  $('chapter').value = ci;
+  setStatus('Your move.');
+  try { history_replace(`#${pz.id}`); } catch { /* ignore */ }
+  render(); renderSide();
+}
+function history_replace(h) { if (location.hash !== h) window.history.replaceState(null, '', h); }
+
+function mark(result) {
+  if (progress[pz.id] === 'solved') return; // never downgrade
+  progress[pz.id] = result;
+  persistProgress();
+}
+
+function showAnswer() {
+  if (!pz.solution) return;
+  $('answer-text').textContent = pz.solution;
+  $('answer').hidden = false;
+}
+
+function finish() {
+  done = true; busy = false; hintSq = null;
+  showAnswer();
+  mark(helped ? 'failed' : 'solved');
+  setStatus(helped ? 'Solved — with some help. Try it again later!' : 'Solved! Well played.', 'good');
+  render(); renderSide();
+}
+
+function isCorrect(m) {
+  // m has just been played on `game`
+  if (game.isCheckmate()) return true;
+  if (onLine && pz.line && pz.line[ply] === m.lan) return true;
+  if (pz.mate) {
+    const left = movesLeft(); // computed with the old ply
+    // Deeper searches are too slow for the browser; there the book line decides.
+    return left > 1 && left <= 3 && (left <= 2 || !pz.line?.length) && allLose(game, left - 1);
+  }
+  return false;
+}
+
+function applyMove(m, who) {
+  lastMove = { from: m.from, to: m.to };
+  animateNext = true;
+  history.push(m.san);
+  ply++;
+}
+
+function userMove(from, to, promotion) {
+  if (busy || done) return;
+  let m;
+  try { m = game.move({ from, to, promotion }); } catch { m = null; }
+  if (!m) return;
+  selected = null; hintSq = null;
+  if (!isCorrect(m)) {
+    game.undo();
+    helped = true;
+    mark('failed');
+    setStatus(`${m.san} doesn't work. Try again.`, 'bad');
+    render();
+    const el = boardEl.querySelector(`[data-sq="${to}"]`);
+    if (el) el.classList.add('wrong');
+    renderSide();
+    return;
+  }
+  if (onLine && pz.line && pz.line[ply] !== m.lan) onLine = false;
+  applyMove(m, 'user');
+  render();
+  if (game.isCheckmate() || (!pz.mate && ply >= pz.line.length)) return finish();
+  setStatus('Good move! Wait for the reply…', 'good');
+  busy = true;
+  later(opponentReply, 450);
+}
+
+function opponentReply() {
+  let r = null;
+  if (onLine && pz.line && pz.line[ply]) r = uciToMove(pz.line[ply]);
+  else if (pz.mate) {
+    const left = pz.mate - Math.ceil(ply / 2);
+    r = left <= 2 ? bestDefence(game, left) : game.moves({ verbose: true })[0];
+  }
+  if (!r) return finish();
+  const m = game.move({ from: r.from, to: r.to, promotion: r.promotion });
+  applyMove(m, 'opp');
+  busy = false;
+  setStatus(`${m.san}. Your move.`);
+  render();
+}
+
+function uciToMove(u) { return { from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] }; }
+
+function expectedMove() {
+  if (onLine && pz.line && pz.line[ply]) return uciToMove(pz.line[ply]);
+  if (pz.mate && movesLeft() <= 2) { const k = mateKeys(game, movesLeft()); return k[0] || null; }
+  return null;
+}
+
+function hint() {
+  if (busy || done) return;
+  const m = expectedMove();
+  if (!m) return;
+  helped = true;
+  hintSq = m.from;
+  const p = game.get(m.from);
+  setStatus(`Hint: move the ${PIECE_NAMES[p.type]} on ${m.from}.`);
+  render();
+}
+
+function showSolution() {
+  clearTimers();
+  const line = pz.line && pz.line.length ? pz.line : mainLine(new Chess(pz.fen), pz.mate);
+  helped = true;
+  mark('failed');
+  game = new Chess(pz.fen);
+  ply = 0; history = []; lastMove = null; selected = null; hintSq = null; busy = true; done = false;
+  render();
+  setStatus('Solution:');
+  line.forEach((u, i) => later(() => {
+    const m = game.move(uciToMove(u));
+    applyMove(m);
+    render();
+    if (i === line.length - 1) { done = true; busy = false; setStatus(`Solution: ${history.join(' ')}`); showAnswer(); renderSide(); }
+  }, 650 * (i + 1)));
+}
+
+function step(delta) {
+  let ci = chapterIdx, pi = puzzleIdx + delta;
+  if (pi >= books[ci].puzzles.length) { if (ci + 1 < books.length) { ci++; pi = 0; } else pi = books[ci].puzzles.length - 1; }
+  if (pi < 0) { if (ci > 0) { ci--; pi = books[ci].puzzles.length - 1; } else pi = 0; }
+  openPuzzle(ci, pi);
+}
+
+// ---------- input: click and drag ----------
+let drag = null;
+
+function squareAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const sq = el && el.closest('.sq');
+  return sq && boardEl.contains(sq) ? sq.dataset.sq : null;
+}
+
+function tryMove(from, to) {
+  const legal = game.moves({ square: from, verbose: true }).filter(m => m.to === to);
+  if (!legal.length) return false;
+  if (legal.some(m => m.promotion)) askPromotion(from, to);
+  else userMove(from, to);
+  return true;
+}
+
+function askPromotion(from, to) {
+  const box = $('promo');
+  box.innerHTML = '';
+  for (const t of ['q', 'r', 'b', 'n']) {
+    const b = document.createElement('button');
+    b.innerHTML = pieceSVG(game.turn(), t);
+    b.title = PIECE_NAMES[t];
+    b.onclick = () => { box.hidden = true; userMove(from, to, t); };
+    box.appendChild(b);
+  }
+  box.hidden = false;
+}
+
+function squareClicked(sq) {
+  if (busy || done) return;
+  const p = game.get(sq);
+  if (selected && selected !== sq && (!p || p.color !== game.turn())) {
+    if (!tryMove(selected, sq)) { selected = null; render(); }
+    return;
+  }
+  if (p && p.color === game.turn()) selected = selected === sq ? null : sq;
+  else selected = null;
+  render();
+}
+
+boardEl.addEventListener('pointerdown', e => {
+  if (busy || done) return;
+  const sq = squareAt(e.clientX, e.clientY);
+  if (!sq) return;
+  const p = game.get(sq);
+  if (selected && selected !== sq && (!p || p.color !== game.turn())) {
+    const from = selected;
+    if (!tryMove(from, sq)) { selected = null; render(); }
+    return;
+  }
+  if (p && p.color === game.turn()) {
+    const wasSelected = selected === sq;
+    selected = sq; render();
+    const pcEl = boardEl.querySelector(`[data-sq="${sq}"] .pc`);
+    if (!pcEl) return;
+    const rect = pcEl.getBoundingClientRect();
+    drag = { from: sq, el: null, startX: e.clientX, startY: e.clientY, w: rect.width, wasSelected, src: pcEl };
+    boardEl.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  } else if (selected) { selected = null; render(); }
+});
+
+boardEl.addEventListener('pointermove', e => {
+  if (!drag) return;
+  if (!drag.el) {
+    if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) return;
+    drag.el = drag.src.cloneNode(true);
+    drag.el.classList.add('dragging');
+    drag.el.style.width = drag.el.style.height = drag.w + 'px';
+    document.body.appendChild(drag.el);
+    drag.src.style.opacity = '0.25';
+  }
+  drag.el.style.left = (e.clientX - drag.w / 2) + 'px';
+  drag.el.style.top = (e.clientY - drag.w / 2) + 'px';
+});
+
+function endDrag(e) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.el) {
+    d.el.remove();
+    const to = squareAt(e.clientX, e.clientY);
+    if (to && to !== d.from && tryMove(d.from, to)) return;
+    render();
+  } else if (d.wasSelected) { selected = null; render(); }
+}
+boardEl.addEventListener('pointerup', endDrag);
+boardEl.addEventListener('pointercancel', e => { if (drag && drag.el) drag.el.remove(); drag = null; render(); });
+
+// In-page confirmation (window.confirm is unavailable in some embeds).
+function askConfirm(message, yesLabel = 'Yes') {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'confirm';
+    wrap.innerHTML = `<div class="confirm-box" role="alertdialog" aria-modal="true"><p></p>
+      <div class="row"><button class="no">Cancel</button><button class="yes primary"></button></div></div>`;
+    wrap.querySelector('p').textContent = message;
+    wrap.querySelector('.yes').textContent = yesLabel;
+    const close = v => { wrap.remove(); resolve(v); };
+    wrap.querySelector('.no').onclick = () => close(false);
+    wrap.querySelector('.yes').onclick = () => close(true);
+    wrap.onclick = e => { if (e.target === wrap) close(false); };
+    document.body.appendChild(wrap);
+    wrap.querySelector('.yes').focus();
+  });
+}
+
+// ---------- controls ----------
+$('prev').onclick = () => step(-1);
+$('next').onclick = () => step(1);
+$('reset').onclick = () => openPuzzle(chapterIdx, puzzleIdx, { keepFlip: true });
+$('hint').onclick = hint;
+$('solution').onclick = showSolution;
+$('flip').onclick = () => { flipped = !flipped; render(); };
+$('chapter').onchange = e => {
+  const ci = Number(e.target.value);
+  const firstOpen = books[ci].puzzles.findIndex(p => !progress[p.id]);
+  openPuzzle(ci, Math.max(0, firstOpen));
+};
+$('reset-progress').onclick = async () => {
+  const ch = books[chapterIdx];
+  if (!(await askConfirm(`Clear your progress in “${ch.title}”?`, 'Clear'))) return;
+  ch.puzzles.forEach(p => delete progress[p.id]);
+  persistProgress();
+  renderSide();
+};
+document.addEventListener('keydown', e => {
+  if (e.target.closest('textarea, input, select')) return;
+  const k = e.key.toLowerCase();
+  if (e.key === 'ArrowRight') step(1);
+  else if (e.key === 'ArrowLeft') step(-1);
+  else if (k === 'r') $('reset').click();
+  else if (k === 'h') hint();
+  else if (k === 's') showSolution();
+  else if (k === 'f') $('flip').click();
+});
+
+// ---------- import ----------
+function parseImport(text) {
+  const out = [], errors = [];
+  text.split('\n').map(s => s.trim()).filter(Boolean).forEach((lineText, i) => {
+    const [fenPart, spec = 'mate in 1'] = lineText.split('|').map(s => s.trim());
+    let g;
+    try { g = new Chess(fenPart); } catch (err) { errors.push(`Line ${i + 1}: invalid FEN.`); return; }
+    if (g.isGameOver()) { errors.push(`Line ${i + 1}: the game is already over in that position.`); return; }
+    const mateMatch = spec.match(/^mate\s*in\s*(\d+)$/i) || spec.match(/^#(\d+)$/);
+    if (mateMatch) {
+      const n = Number(mateMatch[1]);
+      if (n < 1 || n > 3) { errors.push(`Line ${i + 1}: use mate in 1, 2 or 3.`); return; }
+      if (!canMate(g, n)) { errors.push(`Line ${i + 1}: no forced mate in ${n} found.`); return; }
+      out.push({ fen: g.fen(), mate: n, line: mainLine(g, n) });
+      return;
+    }
+    const line = [];
+    for (const tok of spec.split(/\s+/).filter(t => !/^\d+\.+$/.test(t))) {
+      const clean = tok.replace(/^\d+\.+/, '');
+      let m = null;
+      try {
+        m = /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(clean) ? g.move(uciToMove(clean.toLowerCase())) : g.move(clean);
+      } catch { m = null; }
+      if (!m) { errors.push(`Line ${i + 1}: move “${tok}” is illegal.`); return; }
+      line.push(m.lan);
+    }
+    if (!line.length) { errors.push(`Line ${i + 1}: no solution given.`); return; }
+    out.push({ fen: fenPart, mate: null, line });
+  });
+  return { out, errors };
+}
+
+$('import-btn').onclick = () => {
+  const msg = $('import-msg');
+  msg.textContent = 'Checking…'; msg.className = 'small';
+  setTimeout(() => {
+    const { out, errors } = parseImport($('import-text').value);
+    if (out.length) {
+      mine = mine.concat(out);
+      save(MINE_KEY, mine);
+      books = chapters();
+      renderChapterSelect();
+      $('import-text').value = '';
+    }
+    msg.textContent = [out.length ? `Added ${out.length} puzzle${out.length > 1 ? 's' : ''}.` : '', ...errors].filter(Boolean).join(' ');
+    msg.className = 'small ' + (errors.length ? 'bad' : 'good');
+    if (out.length) openPuzzle(books.length - 1, mine.length - out.length);
+  }, 20);
+};
+$('clear-mine').onclick = async () => {
+  if (!mine.length || !(await askConfirm('Delete all puzzles you added?', 'Delete'))) return;
+  mine.forEach((_, i) => delete progress[`mine-${i + 1}`]);
+  mine = []; save(MINE_KEY, mine); persistProgress();
+  books = chapters(); renderChapterSelect(); openPuzzle(0, 0);
+};
+
+// ---------- appearance ----------
+function openAppearance(open) {
+  $('appearance').hidden = !open;
+  $('appearance-scrim').hidden = !open;
+  $('open-appearance').setAttribute('aria-expanded', String(open));
+  if (open) $('close-appearance').focus(); else $('open-appearance').focus();
+}
+$('open-appearance').onclick = () => openAppearance(true);
+$('close-appearance').onclick = () => openAppearance(false);
+$('appearance-scrim').onclick = () => openAppearance(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('appearance').hidden) openAppearance(false); });
+
+function radioCard(cls, checked, html, label, onPick) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.setAttribute('role', 'radio');
+  b.setAttribute('aria-checked', String(checked));
+  b.innerHTML = html;
+  b.title = label;
+  b.onclick = onPick;
+  return b;
+}
+
+function buildAppearance() {
+  const s = settings();
+  const boards = $('board-themes');
+  boards.innerHTML = '';
+  const boardEntries = [...Object.entries(BOARD_THEMES), ['custom', { name: 'Custom', ...boardColors({ ...s, board: 'custom' }) }]];
+  for (const [id, t] of boardEntries) {
+    boards.appendChild(radioCard('swatch', s.board === id,
+      `<span class="swatch-chip"><i style="background:${t.light}"></i><i style="background:${t.dark}"></i><i style="background:${t.dark}"></i><i style="background:${t.light}"></i></span>${t.name}`,
+      t.name, () => setSettings({ board: id })));
+  }
+  const pcs = $('piece-colors');
+  pcs.innerHTML = '';
+  const pcEntries = [...Object.entries(PIECE_COLORS), ['custom', { name: 'Custom', w: s.pieceW || '#fbfaf6', b: s.pieceB || '#2a2724' }]];
+  for (const [id, c] of pcEntries) {
+    pcs.appendChild(radioCard('swatch', s.pieceColors === id,
+      `<span class="swatch-chip pieces"><i><span style="background:${c.w}"></span></i><i><span style="background:${c.b}"></span></i></span>${c.name}`,
+      c.name, () => setSettings({ pieceColors: id })));
+  }
+  const sets = $('piece-sets');
+  sets.innerHTML = '';
+  for (const [id, set] of Object.entries(PIECE_SETS)) {
+    sets.appendChild(radioCard('set-card', s.pieces === id,
+      `<span class="set-pieces"><span>${pieceSVG('w', 'n', id)}</span><span>${pieceSVG('b', 'q', id)}</span></span>${set.name}`,
+      set.name, () => setSettings({ pieces: id })));
+  }
+  const bc = boardColors(), pc = pieceColors();
+  $('board-light').value = bc.light; $('board-dark').value = bc.dark;
+  $('piece-w').value = pc.w; $('piece-b').value = pc.b;
+  $('set-coords').checked = s.coords;
+  const prev = $('preview');
+  prev.innerHTML = '';
+  [['l', 'w', 'k'], ['d', 'b', 'q'], ['l', 'w', 'n'], ['d', 'b', 'p']].forEach(([sq, c, t]) => {
+    const d = document.createElement('div');
+    d.className = sq;
+    d.innerHTML = `<span>${pieceSVG(c, t)}</span>`;
+    prev.appendChild(d);
+  });
+  for (const v of ['2d', '3d']) {
+    $(`view-${v}`).setAttribute('aria-pressed', String(s.view === v));
+    $(`set-view-${v}`).setAttribute('aria-pressed', String(s.view === v));
+  }
+}
+
+$('board-light').oninput = e => setSettings({ board: 'custom', boardLight: e.target.value, boardDark: boardColors().dark });
+$('board-dark').oninput = e => setSettings({ board: 'custom', boardDark: e.target.value, boardLight: boardColors().light });
+$('piece-w').oninput = e => setSettings({ pieceColors: 'custom', pieceW: e.target.value, pieceB: pieceColors().b });
+$('piece-b').oninput = e => setSettings({ pieceColors: 'custom', pieceB: e.target.value, pieceW: pieceColors().w });
+$('set-coords').onchange = e => setSettings({ coords: e.target.checked });
+for (const v of ['2d', '3d']) {
+  $(`view-${v}`).onclick = () => setSettings({ view: v });
+  $(`set-view-${v}`).onclick = () => setSettings({ view: v });
+}
+$('reset-view').onclick = () => board3d && board3d.resetView();
+
+let rebuildTimer = null;
+onSettings((s, patch) => {
+  // Colour pickers fire continuously: refresh the swatch list once they settle.
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(buildAppearance, 'boardLight' in patch || 'pieceW' in patch || 'boardDark' in patch || 'pieceB' in patch ? 250 : 0);
+  if (pz) render();
+});
+applyColors();
+buildAppearance();
+
+// ---------- players and contest ----------
+let editingId = null; // profile being edited in the players dialog, or null for a new one
+let draft = { piece: 'n', color: AVATAR_COLORS[0] };
+
+function renderProfileChip() {
+  const p = currentProfile();
+  const chip = $('profile-chip');
+  if (!p) { chip.innerHTML = 'Choose player'; return; }
+  const s = statsOf(progress);
+  chip.innerHTML = `${avatarHTML(p, 26)}<span class="chip-text"><span class="chip-name"></span><span class="chip-score">${s.score} pts</span></span>`;
+  chip.querySelector('.chip-name').textContent = p.name;
+}
+
+function openPlayers(open, { mustChoose = false } = {}) {
+  $('players').hidden = !open;
+  $('players-close').hidden = mustChoose;
+  if (open) { editingId = null; renderPlayers(); showPlayerForm(!profiles().length); }
+}
+
+function renderPlayers() {
+  const list = $('player-list');
+  list.innerHTML = '';
+  const cur = currentProfile();
+  for (const p of profiles()) {
+    const s = statsOf(loadProgress(p.id));
+    const row = document.createElement('div');
+    row.className = 'player-row' + (cur && cur.id === p.id ? ' current' : '');
+    row.innerHTML = `<button class="player-pick">${avatarHTML(p, 40)}<span><strong class="pn"></strong>
+      <span class="muted small tabular">${s.score} pts · ${s.solved} first try · ${s.helped} with help</span></span></button>
+      <button class="ghost tiny player-edit">Edit</button>`;
+    row.querySelector('.pn').textContent = p.name;
+    row.querySelector('.player-pick').onclick = () => { switchProfile(p.id); openPlayers(false); };
+    row.querySelector('.player-edit').onclick = () => {
+      editingId = p.id; draft = { piece: p.piece, color: p.color };
+      $('player-name').value = p.name; showPlayerForm(true);
+    };
+    list.appendChild(row);
+  }
+  $('add-player').hidden = false;
+}
+
+function showPlayerForm(show) {
+  $('player-form').hidden = !show;
+  $('add-player').hidden = show;
+  $('delete-player').hidden = !editingId;
+  $('cancel-player').hidden = !profiles().length;
+  $('player-form-title').textContent = editingId ? 'Edit player' : 'New player';
+  $('save-player').textContent = editingId ? 'Save' : 'Start playing';
+  if (show && !editingId) { $('player-name').value = ''; draft = { piece: AVATAR_PIECES[profiles().length % 6], color: AVATAR_COLORS[profiles().length % AVATAR_COLORS.length] }; }
+  renderAvatarPicker();
+  if (show) setTimeout(() => $('player-name').focus(), 30);
+}
+
+function renderAvatarPicker() {
+  const pieces = $('avatar-pieces'), colors = $('avatar-colors');
+  pieces.innerHTML = ''; colors.innerHTML = '';
+  for (const t of AVATAR_PIECES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'av-opt'; b.setAttribute('aria-pressed', String(draft.piece === t));
+    b.innerHTML = avatarHTML({ piece: t, color: draft.color }, 36);
+    b.title = PIECE_NAMES[t];
+    b.onclick = () => { draft.piece = t; renderAvatarPicker(); };
+    pieces.appendChild(b);
+  }
+  for (const c of AVATAR_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'color-opt'; b.style.background = c; b.setAttribute('aria-pressed', String(draft.color === c));
+    b.title = 'Colour'; b.setAttribute('aria-label', 'Avatar colour ' + c);
+    b.onclick = () => { draft.color = c; renderAvatarPicker(); };
+    colors.appendChild(b);
+  }
+}
+
+$('player-form').onsubmit = e => {
+  e.preventDefault();
+  const name = $('player-name').value.trim();
+  if (!name) { $('player-name').focus(); return; }
+  if (editingId) updateProfile(editingId, { name, ...draft });
+  else createProfile({ name, ...draft });
+  if (editingId) syncProfile(editingId, 0); else if (currentProfile()) syncProfile(currentProfile().id, 0);
+  openPlayers(false);
+};
+$('cancel-player').onclick = () => { if (profiles().length) { showPlayerForm(false); editingId = null; } };
+$('add-player').onclick = () => { editingId = null; showPlayerForm(true); };
+$('delete-player').onclick = async () => {
+  const p = profiles().find(x => x.id === editingId);
+  if (!p || !(await askConfirm(`Delete ${p.name} and their progress? This can't be undone.`, 'Delete'))) return;
+  deleteProfile(p.id);
+  editingId = null;
+  if (!profiles().length) openPlayers(true, { mustChoose: true }); else { renderPlayers(); showPlayerForm(false); }
+};
+$('profile-chip').onclick = () => openPlayers(true);
+$('players-close').onclick = () => openPlayers(false);
+$('switch-player').onclick = () => openPlayers(true);
+
+onProfilesChange(() => {
+  const p = currentProfile();
+  progress = p ? loadProgress(p.id) : {};
+  renderProfileChip();
+  renderContest();
+  if (pz) renderSide();
+});
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (!(m >= 0)) return '';
+  if (m < 2) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+
+function renderContest() {
+  const info = contestInfo();
+  const rows = leaderboard();
+  const list = $('contest-list');
+  list.innerHTML = '';
+  const cur = currentProfile();
+  rows.slice(0, 50).forEach((r, i) => {
+    const li = document.createElement('li');
+    li.className = 'contest-row' + (cur && r.id === cur.id ? ' me' : '');
+    li.innerHTML = `<span class="rank tabular">${i + 1}</span>${avatarHTML(r, 30)}
+      <span class="who"><span class="nm"></span><span class="muted small meta"></span></span>
+      <span class="pts tabular">${r.score}<small>pts</small></span>`;
+    li.querySelector('.nm').textContent = r.name || 'Player';
+    const tags = [];
+    if (cur && r.id === cur.id) tags.push('You');
+    else if (r.local) tags.push('This device');
+    tags.push(`${r.solved} first try · ${r.helped} with help`);
+    const ago = !r.local || (cur && r.id === cur.id) ? timeAgo(r.updatedAt) : '';
+    if (ago) tags.push(ago);
+    li.querySelector('.meta').textContent = tags.join(' · ');
+    list.appendChild(li);
+  });
+  if (!rows.length) list.innerHTML = '<li class="muted small">No players yet.</li>';
+  const note = $('contest-note');
+  if (!info.online) note.textContent = 'Showing players on this device. Open the shared page on claude.ai to compete with friends on other devices.';
+  else if (info.state === 'loading') note.textContent = 'Loading the shared leaderboard…';
+  else if (info.state === 'stale') note.textContent = "The shared leaderboard can't be reached right now. Scores may be out of date.";
+  else if (!info.canPost) note.textContent = 'You can watch the contest, but your scores are not posted. Ask the page owner to give you Contributor access.';
+  else note.textContent = 'Live: everyone who opens this page sees the same leaderboard. 3 points for a first-try solve, 1 with help.';
+}
+onContest(renderContest);
+
+// ---------- the reader's own copy of the book ----------
+function setBookStatus(text, kind = '') {
+  const el = $('book-status');
+  el.textContent = text;
+  el.className = 'small ' + kind;
+}
+
+function showBookState() {
+  $('book-loaded').hidden = !bookPuzzles;
+  $('book-load').hidden = !!bookPuzzles;
+  $('load-book-top').hidden = !!bookPuzzles;
+  if (bookPuzzles) $('book-count').textContent = bookPuzzles.length.toLocaleString();
+}
+
+function refreshBooks(openFirstBook = false) {
+  const currentId = pz && pz.id;
+  books = chapters();
+  renderChapterSelect();
+  showBookState();
+  if (openFirstBook) {
+    const pi = books[0].puzzles.findIndex(p => !progress[p.id]);
+    return openPuzzle(0, Math.max(0, pi));
+  }
+  const pos = currentId && findPuzzle(currentId);
+  if (pos) openPuzzle(...pos, { keepFlip: true }); else openPuzzle(0, 0);
+}
+
+async function loadBookFile(file) {
+  setBookStatus('Opening the PDF…');
+  $('book-progress').hidden = false;
+  try {
+    const pdfjs = await import('./vendor/pdfjs/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      pages.push(await pageItems(await doc.getPage(n)));
+      if (n % 25 === 0 || n === doc.numPages) {
+        $('book-progress').value = n / doc.numPages;
+        setBookStatus(`Reading page ${n} of ${doc.numPages}…`);
+        await new Promise(r => setTimeout(r));
+      }
+    }
+    setBookStatus('Setting up the puzzles…');
+    await new Promise(r => setTimeout(r, 30));
+    const { puzzles, problems } = parseBook(pages);
+    if (puzzles.length < 100) throw new Error('This does not look like the 5334-problem book.');
+    bookPuzzles = puzzles;
+    await idbSet('book', puzzles);
+    setBookStatus(`Loaded ${puzzles.length.toLocaleString()} puzzles.` +
+      (problems.length ? ` ${problems.length} could not be read and were skipped (${problems.map(p => p.id).slice(0, 12).join(', ')}${problems.length > 12 ? ', …' : ''}).` : ''), 'good');
+    refreshBooks(true);
+  } catch (err) {
+    setBookStatus(`Could not read that file: ${err.message || err}`, 'bad');
+  } finally {
+    $('book-progress').hidden = true;
+  }
+}
+
+for (const id of ['book-file', 'book-file-top']) {
+  $(id).onchange = e => { const f = e.target.files[0]; if (f) loadBookFile(f); e.target.value = ''; };
+}
+$('book-remove').onclick = async () => {
+  if (!(await askConfirm('Remove the book from this browser? Your progress is kept.', 'Remove'))) return;
+  bookPuzzles = null;
+  await idbSet('book', undefined);
+  setBookStatus('');
+  refreshBooks();
+};
+
+// ---------- start ----------
+function findPuzzle(id) {
+  for (let ci = 0; ci < books.length; ci++) {
+    const pi = books[ci].puzzles.findIndex(p => p.id === id);
+    if (pi >= 0) return [ci, pi];
+  }
+  return null;
+}
+const fromHash = () => findPuzzle(decodeURIComponent(location.hash.slice(1)));
+
+const stored = await idbGet('book');
+if (Array.isArray(stored) && stored.length) bookPuzzles = stored;
+books = chapters();
+renderChapterSelect();
+showBookState();
+renderProfileChip();
+renderContest();
+startContest();
+if (!profiles().length) openPlayers(true, { mustChoose: true });
+const start = fromHash();
+if (start) openPuzzle(...start);
+else {
+  const pi = books[0].puzzles.findIndex(p => !progress[p.id]);
+  openPuzzle(0, Math.max(0, pi));
+}
+window.addEventListener('hashchange', () => {
+  const pos = fromHash();
+  if (pos && books[pos[0]].puzzles[pos[1]] !== pz) openPuzzle(...pos);
+});

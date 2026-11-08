@@ -453,6 +453,24 @@ function endDrag(e) {
 boardEl.addEventListener('pointerup', endDrag);
 boardEl.addEventListener('pointercancel', e => { if (drag && drag.el) drag.el.remove(); drag = null; render(); });
 
+// In-page confirmation (window.confirm is unavailable in some embeds).
+function askConfirm(message, yesLabel = 'Yes') {
+  return new Promise(resolve => {
+    const wrap = document.createElement('div');
+    wrap.className = 'confirm';
+    wrap.innerHTML = `<div class="confirm-box" role="alertdialog" aria-modal="true"><p></p>
+      <div class="row"><button class="no">Cancel</button><button class="yes primary"></button></div></div>`;
+    wrap.querySelector('p').textContent = message;
+    wrap.querySelector('.yes').textContent = yesLabel;
+    const close = v => { wrap.remove(); resolve(v); };
+    wrap.querySelector('.no').onclick = () => close(false);
+    wrap.querySelector('.yes').onclick = () => close(true);
+    wrap.onclick = e => { if (e.target === wrap) close(false); };
+    document.body.appendChild(wrap);
+    wrap.querySelector('.yes').focus();
+  });
+}
+
 // ---------- controls ----------
 $('prev').onclick = () => step(-1);
 $('next').onclick = () => step(1);
@@ -465,9 +483,9 @@ $('chapter').onchange = e => {
   const firstOpen = books[ci].puzzles.findIndex(p => !progress[p.id]);
   openPuzzle(ci, Math.max(0, firstOpen));
 };
-$('reset-progress').onclick = () => {
+$('reset-progress').onclick = async () => {
   const ch = books[chapterIdx];
-  if (!confirm(`Clear your progress in “${ch.title}”?`)) return;
+  if (!(await askConfirm(`Clear your progress in “${ch.title}”?`, 'Clear'))) return;
   ch.puzzles.forEach(p => delete progress[p.id]);
   save(PROGRESS_KEY, progress);
   renderSide();
@@ -532,8 +550,8 @@ $('import-btn').onclick = () => {
     if (out.length) openPuzzle(books.length - 1, mine.length - out.length);
   }, 20);
 };
-$('clear-mine').onclick = () => {
-  if (!mine.length || !confirm('Delete all puzzles you added?')) return;
+$('clear-mine').onclick = async () => {
+  if (!mine.length || !(await askConfirm('Delete all puzzles you added?', 'Delete'))) return;
   mine.forEach((_, i) => delete progress[`mine-${i + 1}`]);
   mine = []; save(MINE_KEY, mine); save(PROGRESS_KEY, progress);
   books = chapters(); renderChapterSelect(); openPuzzle(0, 0);
@@ -599,7 +617,7 @@ async function loadBookFile(file) {
 
 $('book-file').onchange = e => { const f = e.target.files[0]; if (f) loadBookFile(f); e.target.value = ''; };
 $('book-remove').onclick = async () => {
-  if (!confirm('Remove the book from this browser? Your progress is kept.')) return;
+  if (!(await askConfirm('Remove the book from this browser? Your progress is kept.', 'Remove'))) return;
   bookPuzzles = null;
   await idbSet('book', undefined);
   setBookStatus('');

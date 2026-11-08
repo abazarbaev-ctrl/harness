@@ -212,7 +212,8 @@ export async function createBoard3D(container, { onSquare }) {
   const pointers = new Map();
   let down = null, pinch0 = null;
   const el = renderer.domElement;
-  el.style.touchAction = 'none';
+  // Vertical swipes scroll the page on touch screens; horizontal drags turn the board.
+  el.style.touchAction = 'pan-y';
 
   el.addEventListener('pointerdown', e => {
     el.setPointerCapture(e.pointerId);

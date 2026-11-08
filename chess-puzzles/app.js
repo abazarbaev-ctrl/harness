@@ -713,6 +713,7 @@ function setBookStatus(text, kind = '') {
 function showBookState() {
   $('book-loaded').hidden = !bookPuzzles;
   $('book-load').hidden = !!bookPuzzles;
+  $('load-book-top').hidden = !!bookPuzzles;
   if (bookPuzzles) $('book-count').textContent = bookPuzzles.length.toLocaleString();
 }
 
@@ -761,7 +762,9 @@ async function loadBookFile(file) {
   }
 }
 
-$('book-file').onchange = e => { const f = e.target.files[0]; if (f) loadBookFile(f); e.target.value = ''; };
+for (const id of ['book-file', 'book-file-top']) {
+  $(id).onchange = e => { const f = e.target.files[0]; if (f) loadBookFile(f); e.target.value = ''; };
+}
 $('book-remove').onclick = async () => {
   if (!(await askConfirm('Remove the book from this browser? Your progress is kept.', 'Remove'))) return;
   bookPuzzles = null;

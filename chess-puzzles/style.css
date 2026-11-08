@@ -98,6 +98,11 @@ select { padding: 7px 10px; max-width: 100%; }
 .chapter-pick .eyebrow { margin-bottom: 2px; }
 .chapter-pick select { width: 100%; }
 .appearance-btn { display: inline-flex; align-items: center; gap: 8px; align-self: flex-end; }
+.load-book-btn {
+  display: inline-flex; align-items: center; align-self: flex-end; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); font-weight: 600;
+}
+.load-book-btn:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 .swatch-pair { display: inline-flex; border-radius: 4px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
 .swatch-pair i { width: 10px; height: 18px; }
 .swatch-pair i:first-child { background: var(--light-sq); }
@@ -130,7 +135,7 @@ select { padding: 7px 10px; max-width: 100%; }
 .board {
   display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
   width: 100%; aspect-ratio: 1; max-width: 100%; border-radius: 3px; overflow: hidden;
-  touch-action: none; user-select: none; -webkit-user-select: none;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
 }
 .board3d {
   position: relative; width: 100%; aspect-ratio: 1; max-width: 100%; border-radius: 4px; overflow: hidden;
@@ -159,7 +164,7 @@ select { padding: 7px 10px; max-width: 100%; }
 .sq.d .coord { color: var(--coord-on-dark); }
 [data-coords="off"] .coord { display: none; }
 
-.pc { width: 88%; height: 88%; display: block; cursor: grab; position: relative; z-index: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+.pc { touch-action: none; width: 88%; height: 88%; display: block; cursor: grab; position: relative; z-index: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
 .pc svg, .preview svg, .set-card svg, .promo svg { width: 100%; height: 100%; display: block; }
 .pc.dragging { position: fixed; z-index: 50; pointer-events: none; cursor: grabbing; }
 
@@ -283,7 +288,7 @@ textarea { width: 100%; padding: 8px; font: .8rem var(--font-mono); margin-top: 
 @media (max-width: 520px) {
   .brand-name { font-size: 1.3rem; }
   .brand-mark { width: 22px; height: 22px; }
-  .appearance-btn { padding: 6px 10px; }
+  .appearance-btn, .load-book-btn { padding: 6px 10px; align-self: center; }
   .chapter-pick { flex-basis: 100%; order: 3; }
   .appearance-btn { align-self: center; }
   .toolbar > button { padding: 8px 10px; }

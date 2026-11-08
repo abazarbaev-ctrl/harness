@@ -3,6 +3,10 @@ import { CHAPTERS } from './puzzles.js';
 import { pieceSVG, PIECE_NAMES } from './pieces.js';
 import { allLose, bestDefence, mateKeys, mainLine, canMate } from './solver.js';
 import { parseBook, pageItems, BOOK_CHAPTERS } from './book.js';
+import {
+  settings, setSettings, onSettings, applyColors, boardColors, pieceColors, mix,
+  BOARD_THEMES, PIECE_COLORS, PIECE_SETS,
+} from './settings.js';
 
 const $ = id => document.getElementById(id);
 const FILES = 'abcdefgh';
@@ -101,6 +105,7 @@ let lastMove = null;
 let hintSq = null;
 let history = [];
 let timers = [];
+let animateNext = false; // animate the next rendered move in 3D
 
 const attacker = () => new Chess(pz.fen).turn();
 const movesLeft = () => pz.mate - Math.floor(ply / 2);
@@ -124,7 +129,48 @@ function squareOrder() {
   return out;
 }
 
+let board3d = null, board3dLoading = null;
+
 function render() {
+  if (settings().view === '3d') render3d(); else render2d();
+  renderMoves();
+}
+
+function render3d() {
+  boardEl.hidden = true;
+  $('board3d').hidden = false;
+  if (!board3d) {
+    if (!board3dLoading) {
+      $('board3d-msg').textContent = 'Setting up the 3D board…';
+      board3dLoading = import('./board3d.js')
+        .then(m => m.createBoard3D($('board3d'), { onSquare: squareClicked }))
+        .then(b => { board3d = b; $('board3d-msg').textContent = 'Drag to turn the board · tap a piece, then a square'; render(); })
+        .catch(err => {
+          board3dLoading = null;
+          $('board3d-msg').textContent = '';
+          setStatus(`3D view is not available here (${err.message || err}). Showing the flat board.`, 'bad');
+          setSettings({ view: '2d' });
+        });
+    }
+    return;
+  }
+  const moves = selected ? game.moves({ square: selected, verbose: true }) : [];
+  const pieces = [];
+  for (const row of game.board()) for (const p of row) if (p) pieces.push(p);
+  const bc = boardColors(), pc = pieceColors();
+  board3d.update({
+    pieces, orientation: orientation(), selected, hint: hintSq, lastMove, ply,
+    targets: moves.map(m => m.to), occupied: new Set(moves.filter(m => m.captured).map(m => m.to)),
+    animate: animateNext, movedType: lastMove ? (game.get(lastMove.to) || {}).type : null,
+    coords: settings().coords,
+    colors: { light: bc.light, dark: bc.dark, frame: mix(bc.dark, '#1a120c', 0.45), w: pc.w, b: pc.b, coords: mix(bc.light, '#ffffff', 0.4) },
+  });
+  animateNext = false;
+}
+
+function render2d() {
+  boardEl.hidden = false;
+  $('board3d').hidden = true;
   const targets = new Set(selected ? game.moves({ square: selected, verbose: true }).map(m => m.to) : []);
   boardEl.innerHTML = '';
   for (const { sq, showFile, showRank, light } of squareOrder()) {
@@ -148,7 +194,6 @@ function render() {
     if (showRank) el.insertAdjacentHTML('beforeend', `<span class="coord rank">${sq[1]}</span>`);
     boardEl.appendChild(el);
   }
-  renderMoves();
 }
 
 function renderMoves() {
@@ -242,6 +287,7 @@ function openPuzzle(ci, pi, { keepFlip = false } = {}) {
   selected = null; lastMove = null; hintSq = null; history = [];
   if (!keepFlip) flipped = false;
   $('pz-number').textContent = `No. ${pz.number || pi + 1}`;
+  $('pz-turn').className = 'turn-dot ' + attacker();
   $('pz-source').textContent = pz.source || '';
   $('answer').hidden = true;
   $('pz-task').textContent = taskText();
@@ -286,6 +332,7 @@ function isCorrect(m) {
 
 function applyMove(m, who) {
   lastMove = { from: m.from, to: m.to };
+  animateNext = true;
   history.push(m.san);
   ply++;
 }
@@ -402,6 +449,18 @@ function askPromotion(from, to) {
     box.appendChild(b);
   }
   box.hidden = false;
+}
+
+function squareClicked(sq) {
+  if (busy || done) return;
+  const p = game.get(sq);
+  if (selected && selected !== sq && (!p || p.color !== game.turn())) {
+    if (!tryMove(selected, sq)) { selected = null; render(); }
+    return;
+  }
+  if (p && p.color === game.turn()) selected = selected === sq ? null : sq;
+  else selected = null;
+  render();
 }
 
 boardEl.addEventListener('pointerdown', e => {
@@ -556,6 +615,93 @@ $('clear-mine').onclick = async () => {
   mine = []; save(MINE_KEY, mine); save(PROGRESS_KEY, progress);
   books = chapters(); renderChapterSelect(); openPuzzle(0, 0);
 };
+
+// ---------- appearance ----------
+function openAppearance(open) {
+  $('appearance').hidden = !open;
+  $('appearance-scrim').hidden = !open;
+  $('open-appearance').setAttribute('aria-expanded', String(open));
+  if (open) $('close-appearance').focus(); else $('open-appearance').focus();
+}
+$('open-appearance').onclick = () => openAppearance(true);
+$('close-appearance').onclick = () => openAppearance(false);
+$('appearance-scrim').onclick = () => openAppearance(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('appearance').hidden) openAppearance(false); });
+
+function radioCard(cls, checked, html, label, onPick) {
+  const b = document.createElement('button');
+  b.className = cls;
+  b.setAttribute('role', 'radio');
+  b.setAttribute('aria-checked', String(checked));
+  b.innerHTML = html;
+  b.title = label;
+  b.onclick = onPick;
+  return b;
+}
+
+function buildAppearance() {
+  const s = settings();
+  const boards = $('board-themes');
+  boards.innerHTML = '';
+  const boardEntries = [...Object.entries(BOARD_THEMES), ['custom', { name: 'Custom', ...boardColors({ ...s, board: 'custom' }) }]];
+  for (const [id, t] of boardEntries) {
+    boards.appendChild(radioCard('swatch', s.board === id,
+      `<span class="swatch-chip"><i style="background:${t.light}"></i><i style="background:${t.dark}"></i><i style="background:${t.dark}"></i><i style="background:${t.light}"></i></span>${t.name}`,
+      t.name, () => setSettings({ board: id })));
+  }
+  const pcs = $('piece-colors');
+  pcs.innerHTML = '';
+  const pcEntries = [...Object.entries(PIECE_COLORS), ['custom', { name: 'Custom', w: s.pieceW || '#fbfaf6', b: s.pieceB || '#2a2724' }]];
+  for (const [id, c] of pcEntries) {
+    pcs.appendChild(radioCard('swatch', s.pieceColors === id,
+      `<span class="swatch-chip pieces"><i><span style="background:${c.w}"></span></i><i><span style="background:${c.b}"></span></i></span>${c.name}`,
+      c.name, () => setSettings({ pieceColors: id })));
+  }
+  const sets = $('piece-sets');
+  sets.innerHTML = '';
+  for (const [id, set] of Object.entries(PIECE_SETS)) {
+    sets.appendChild(radioCard('set-card', s.pieces === id,
+      `<span class="set-pieces"><span>${pieceSVG('w', 'n', id)}</span><span>${pieceSVG('b', 'q', id)}</span></span>${set.name}`,
+      set.name, () => setSettings({ pieces: id })));
+  }
+  const bc = boardColors(), pc = pieceColors();
+  $('board-light').value = bc.light; $('board-dark').value = bc.dark;
+  $('piece-w').value = pc.w; $('piece-b').value = pc.b;
+  $('set-coords').checked = s.coords;
+  const prev = $('preview');
+  prev.innerHTML = '';
+  [['l', 'w', 'k'], ['d', 'b', 'q'], ['l', 'w', 'n'], ['d', 'b', 'p']].forEach(([sq, c, t]) => {
+    const d = document.createElement('div');
+    d.className = sq;
+    d.innerHTML = `<span>${pieceSVG(c, t)}</span>`;
+    prev.appendChild(d);
+  });
+  for (const v of ['2d', '3d']) {
+    $(`view-${v}`).setAttribute('aria-pressed', String(s.view === v));
+    $(`set-view-${v}`).setAttribute('aria-pressed', String(s.view === v));
+  }
+}
+
+$('board-light').oninput = e => setSettings({ board: 'custom', boardLight: e.target.value, boardDark: boardColors().dark });
+$('board-dark').oninput = e => setSettings({ board: 'custom', boardDark: e.target.value, boardLight: boardColors().light });
+$('piece-w').oninput = e => setSettings({ pieceColors: 'custom', pieceW: e.target.value, pieceB: pieceColors().b });
+$('piece-b').oninput = e => setSettings({ pieceColors: 'custom', pieceB: e.target.value, pieceW: pieceColors().w });
+$('set-coords').onchange = e => setSettings({ coords: e.target.checked });
+for (const v of ['2d', '3d']) {
+  $(`view-${v}`).onclick = () => setSettings({ view: v });
+  $(`set-view-${v}`).onclick = () => setSettings({ view: v });
+}
+$('reset-view').onclick = () => board3d && board3d.resetView();
+
+let rebuildTimer = null;
+onSettings((s, patch) => {
+  // Colour pickers fire continuously: refresh the swatch list once they settle.
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(buildAppearance, 'boardLight' in patch || 'pieceW' in patch || 'boardDark' in patch || 'pieceB' in patch ? 250 : 0);
+  if (pz) render();
+});
+applyColors();
+buildAppearance();
 
 // ---------- the reader's own copy of the book ----------
 function setBookStatus(text, kind = '') {

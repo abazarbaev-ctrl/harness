@@ -32,6 +32,12 @@ through a server, not `file://`.
 
 ## Features
 
+- **Appearance panel:** eight board colour themes plus custom light/dark squares, three piece styles
+  (Classic, Flat, Letters), six piece colour pairs plus custom colours, and a coordinates toggle.
+  Your choices are remembered in this browser.
+- **3D view:** a Three.js table board with turned pieces. Drag to orbit, scroll or pinch to zoom, and tap a
+  piece and then a square to move. It uses the same board and piece colours as the 2D view.
+
 - Move pieces by clicking or dragging. Legal moves are shown, and a dialog lets you pick the promotion piece.
 - **Any correct move is accepted** in mate-in-1 and mate-in-2 positions. A built-in forced-mate solver
   checks your move, so an alternative mate is fine, and the computer answers with its most stubborn
@@ -69,6 +75,9 @@ For the Polgár book itself, use “Open the book PDF…” (see above).
 | `solver.js` | Forced-mate search (shared with the generator) |
 | `book.js` | Reads the Polgár PDF's text layer (diagrams + answer key) into puzzles |
 | `vendor/pdfjs/` | [pdf.js](https://github.com/mozilla/pdf.js) 4.10.38 (Apache-2.0) |
-| `pieces.js` | Original SVG piece set |
+| `pieces.js` | Original SVG piece sets (Classic, Flat, Letters) |
+| `settings.js` | Appearance settings: board themes, piece colours, view |
+| `board3d.js` | 3D board (lazy-loaded) |
+| `vendor/three/` | [three.js](https://threejs.org) r160 (MIT) |
 | `puzzles.js` | Generated puzzle data |
 | `vendor/chess.js` | [chess.js](https://github.com/jhlywa/chess.js) 1.0.0 (BSD-2-Clause, licence alongside) |

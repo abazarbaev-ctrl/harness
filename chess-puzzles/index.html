@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Checkmate Workbook</title>
-<meta name="description" content="Playable chess puzzle workbook: mate in 1 and mate in 2, plus your own imported positions.">
+<meta name="description" content="Playable chess puzzle workbook. Open your own PDF of Polgár's 5334 problems and play them, or practise with generated mates.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -24,6 +24,7 @@
     </div>
     <div id="board" class="board" role="grid" aria-label="Chess board"></div>
     <div id="promo" class="promo" hidden></div>
+    <p id="pz-source" class="muted small source"></p>
     <p id="status" class="status" aria-live="polite"></p>
     <div class="controls">
       <button id="prev" title="Previous puzzle (←)">◀ Prev</button>
@@ -36,11 +37,32 @@
   </section>
 
   <aside class="side">
+    <div class="card book-card">
+      <div id="book-load">
+        <h2>Play the Polgár book</h2>
+        <p class="muted small">Have <em>Chess: 5334 Problems, Combinations and Games</em> as a PDF?
+          Open it here and every problem becomes playable, numbered as in the book, with the book's answers.
+          The file is read <strong>inside your browser</strong>. It is never uploaded.</p>
+        <label class="file-btn primary">Open the book PDF…
+          <input id="book-file" type="file" accept="application/pdf,.pdf" hidden>
+        </label>
+      </div>
+      <div id="book-loaded" hidden>
+        <h2>Polgár book loaded</h2>
+        <p class="muted small"><span id="book-count"></span> puzzles from your copy, saved in this browser.
+          Pick a “Polgár” chapter from the menu above.</p>
+        <button id="book-remove" class="link small">Remove the book from this browser</button>
+      </div>
+      <progress id="book-progress" max="1" value="0" hidden></progress>
+      <p id="book-status" class="small" aria-live="polite"></p>
+    </div>
+
     <div class="card">
       <h2 id="ch-title"></h2>
       <p id="ch-desc" class="muted"></p>
       <div class="progress"><div id="progress-bar"></div></div>
       <p id="progress-text" class="muted small"></p>
+      <select id="grid-range" class="grid-range" aria-label="Puzzle range" hidden></select>
       <div id="grid" class="grid" aria-label="Puzzle index"></div>
       <button id="reset-progress" class="link small">Reset progress for this chapter</button>
     </div>
@@ -48,6 +70,10 @@
     <div class="card">
       <h2>Moves</h2>
       <ol id="moves" class="moves"></ol>
+      <div id="answer" class="answer" hidden>
+        <h3>Book answer</h3>
+        <p id="answer-text"></p>
+      </div>
     </div>
 
     <details class="card">

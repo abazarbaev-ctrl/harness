@@ -1,8 +1,22 @@
 # Checkmate Workbook
 
-A playable chess puzzle workbook that runs in the browser. It's laid out like the classic big checkmate
-collections: a long run of **mate in one** puzzles, then **mate in two**. You can also type in positions
-from any book you own.
+A playable chess puzzle workbook that runs in the browser.
+
+- **Play László Polgár's *Chess: 5334 Problems, Combinations and Games*.** Open your PDF of the book
+  (“Open the book PDF…”) and every problem becomes playable, numbered as in the book: mate in 1, 2 and 3,
+  the 600 miniature games, the endgames and the Polgár sisters' combinations, each with the book's answer.
+  5,313 of the 5,334 problems load. The 21 skipped are game scores that could not be matched to their
+  diagram.
+- **Practice sets**: original computer-generated mate-in-1 and mate-in-2 puzzles. These need no book.
+- **My puzzles**: type in any position yourself.
+
+### How the book import works (and why the book isn't in this repo)
+
+The book is copyrighted, so this repository contains **no** book content. `book.js` holds only the
+rules for reading the 2013 TeX edition of the PDF. Its diagrams are text in a chess font, and its answer
+key sits at the back. When you open the PDF, pdf.js reads it **in your browser**. The positions and
+answers are turned into puzzles and stored in your browser's IndexedDB. Nothing is uploaded, and
+nothing is saved to the server.
 
 ## Run it
 
@@ -19,8 +33,10 @@ through a server, not `file://`.
 ## Features
 
 - Move pieces by clicking or dragging. Legal moves are shown, and a dialog lets you pick the promotion piece.
-- **Any correct move is accepted.** A built-in forced-mate solver checks your move, so an alternative mate
-  is fine. The computer answers with its most stubborn defence.
+- **Any correct move is accepted** in mate-in-1 and mate-in-2 positions. A built-in forced-mate solver
+  checks your move, so an alternative mate is fine, and the computer answers with its most stubborn
+  defence. Mate-in-3 and the other book sections follow the book's main line. Any move that gives mate
+  is always accepted.
 - Hint (highlights the piece to move), Solution (plays out the main line), Retry, Flip board.
 - Progress is saved in the browser. Green means solved on the first try; amber means solved with help.
 - Deep links to individual puzzles, e.g. `#m2-17`.
@@ -42,8 +58,7 @@ node tools/generate.mjs 2 150 900 > m2.json   # mate in 2
 node tools/build.mjs m1.json m2.json
 ```
 
-To practise with positions from a copyrighted book such as László Polgar's *Chess: 5334 Problems,
-Combinations and Games*, enter them under **My puzzles**. They stay in your own browser.
+For the Polgár book itself, use “Open the book PDF…” (see above).
 
 ## Files
 
@@ -52,6 +67,8 @@ Combinations and Games*, enter them under **My puzzles**. They stay in your own 
 | `index.html`, `style.css` | Page and styles (light/dark) |
 | `app.js` | Board, input, puzzle flow, progress, import |
 | `solver.js` | Forced-mate search (shared with the generator) |
+| `book.js` | Reads the Polgár PDF's text layer (diagrams + answer key) into puzzles |
+| `vendor/pdfjs/` | [pdf.js](https://github.com/mozilla/pdf.js) 4.10.38 (Apache-2.0) |
 | `pieces.js` | Original SVG piece set |
 | `puzzles.js` | Generated puzzle data |
 | `vendor/chess.js` | [chess.js](https://github.com/jhlywa/chess.js) 1.0.0 (BSD-2-Clause, licence alongside) |

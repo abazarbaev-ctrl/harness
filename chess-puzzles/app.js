@@ -2,6 +2,7 @@ import { Chess } from './vendor/chess.js';
 import { CHAPTERS } from './puzzles.js';
 import { pieceSVG, PIECE_NAMES } from './pieces.js';
 import { allLose, bestDefence, mateKeys, mainLine, canMate } from './solver.js';
+import { parseBook, pageItems, BOOK_CHAPTERS } from './book.js';
 
 const $ = id => document.getElementById(id);
 const FILES = 'abcdefgh';
@@ -16,12 +17,63 @@ function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value
 
 let progress = load(PROGRESS_KEY, {});
 let mine = load(MINE_KEY, []);
+let bookPuzzles = null; // parsed from the reader's own PDF, kept in IndexedDB
+
+// ---------- IndexedDB (the parsed book is too big for localStorage) ----------
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('checkmate-workbook', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbGet(key) {
+  try {
+    const db = await idb();
+    return await new Promise((res, rej) => {
+      const r = db.transaction('kv').objectStore('kv').get(key);
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+  } catch { return undefined; }
+}
+async function idbSet(key, value) {
+  try {
+    const db = await idb();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite');
+      if (value === undefined) tx.objectStore('kv').delete(key); else tx.objectStore('kv').put(value, key);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+  } catch { /* ignore: the book stays loaded for this visit only */ }
+}
+
+const BOOK_TASK = {
+  'p-games': 'find the winning move',
+  'p-draw': 'White draws',
+  'p-win': 'White wins',
+  'p-sisters': 'find the combination',
+};
 
 function chapters() {
-  const list = CHAPTERS.map(c => ({
-    ...c,
-    puzzles: c.puzzles.map(([fen, line], i) => ({ id: `${c.id}-${i + 1}`, fen, line: line.split(' '), mate: c.mate })),
-  }));
+  const list = [];
+  if (bookPuzzles) {
+    for (const c of BOOK_CHAPTERS) {
+      const puzzles = bookPuzzles.filter(p => p.chapter === c.id);
+      if (!puzzles.length) continue;
+      list.push({
+        id: c.id, title: `Polgár: ${c.title}`, mate: c.mate, book: true, task: BOOK_TASK[c.id],
+        desc: `Problems ${c.from}–${c.to} from your copy of the book. The numbers match the book.`,
+        puzzles,
+      });
+    }
+  }
+  for (const c of CHAPTERS) {
+    list.push({
+      ...c, title: `Practice: ${c.title}`,
+      puzzles: c.puzzles.map(([fen, line], i) => ({ id: `${c.id}-${i + 1}`, fen, line: line.split(' '), mate: c.mate })),
+    });
+  }
   if (mine.length) {
     list.push({
       id: 'mine', title: 'My puzzles', mate: null,
@@ -127,19 +179,34 @@ function renderSide() {
   $('progress-bar').style.width = (100 * tried / ch.puzzles.length) + '%';
   $('progress-text').textContent =
     `${tried} of ${ch.puzzles.length} done · ${solved} solved first try`;
+  const PAGE = 100;
+  const pages = Math.ceil(ch.puzzles.length / PAGE);
+  const page = Math.floor(puzzleIdx / PAGE);
+  const range = $('grid-range');
+  range.hidden = pages < 2;
+  range.innerHTML = '';
+  for (let k = 0; k < pages; k++) {
+    const a = ch.puzzles[k * PAGE], b = ch.puzzles[Math.min(ch.puzzles.length, (k + 1) * PAGE) - 1];
+    const o = document.createElement('option');
+    o.value = k; o.textContent = `No. ${a.number || k * PAGE + 1} – ${b.number || Math.min(ch.puzzles.length, (k + 1) * PAGE)}`;
+    range.appendChild(o);
+  }
+  range.value = page;
+  range.onchange = () => openPuzzle(chapterIdx, Number(range.value) * PAGE);
   const grid = $('grid');
   grid.innerHTML = '';
-  ch.puzzles.forEach((p, i) => {
+  ch.puzzles.slice(page * PAGE, (page + 1) * PAGE).forEach((p, j) => {
+    const i = page * PAGE + j;
     const b = document.createElement('button');
-    b.textContent = i + 1;
-    b.title = `Puzzle ${i + 1}`;
+    b.textContent = p.number || i + 1;
+    b.title = `Puzzle ${p.number || i + 1}`;
     if (progress[p.id]) b.classList.add(progress[p.id]);
     if (i === puzzleIdx) b.classList.add('current');
     b.onclick = () => openPuzzle(chapterIdx, i);
     grid.appendChild(b);
   });
-  const cur = grid.children[puzzleIdx];
-  if (cur) cur.scrollIntoView({ block: 'nearest' });
+  const cur = grid.querySelector('.current');
+  if (cur) grid.scrollTop = cur.offsetTop - grid.offsetTop - grid.clientHeight / 2;
   $('prev').disabled = chapterIdx === 0 && puzzleIdx === 0;
 }
 
@@ -161,7 +228,9 @@ function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
 function taskText() {
   const side = attacker() === 'w' ? 'White' : 'Black';
   if (pz.mate) return `${side} to move · mate in ${pz.mate}`;
-  return `${side} to move · find the best line`;
+  const t = books[chapterIdx].task;
+  if (t && t.startsWith('White')) return t.replace('White', side);
+  return `${side} to move · ${t || 'find the best line'}`;
 }
 
 function openPuzzle(ci, pi, { keepFlip = false } = {}) {
@@ -172,7 +241,9 @@ function openPuzzle(ci, pi, { keepFlip = false } = {}) {
   ply = 0; onLine = true; helped = false; done = false; busy = false;
   selected = null; lastMove = null; hintSq = null; history = [];
   if (!keepFlip) flipped = false;
-  $('pz-number').textContent = `${books[ci].title} · No. ${pi + 1}`;
+  $('pz-number').textContent = `No. ${pz.number || pi + 1}`;
+  $('pz-source').textContent = pz.source || '';
+  $('answer').hidden = true;
   $('pz-task').textContent = taskText();
   $('chapter').value = ci;
   setStatus('Your move.');
@@ -187,8 +258,15 @@ function mark(result) {
   save(PROGRESS_KEY, progress);
 }
 
+function showAnswer() {
+  if (!pz.solution) return;
+  $('answer-text').textContent = pz.solution;
+  $('answer').hidden = false;
+}
+
 function finish() {
   done = true; busy = false; hintSq = null;
+  showAnswer();
   mark(helped ? 'failed' : 'solved');
   setStatus(helped ? 'Solved — with some help. Try it again later!' : 'Solved! Well played.', 'good');
   render(); renderSide();
@@ -197,11 +275,13 @@ function finish() {
 function isCorrect(m) {
   // m has just been played on `game`
   if (game.isCheckmate()) return true;
+  if (onLine && pz.line && pz.line[ply] === m.lan) return true;
   if (pz.mate) {
     const left = movesLeft(); // computed with the old ply
-    return left > 1 && allLose(game, left - 1);
+    // Deeper searches are too slow for the browser; there the book line decides.
+    return left > 1 && left <= 3 && (left <= 2 || !pz.line?.length) && allLose(game, left - 1);
   }
-  return pz.line[ply] === m.lan;
+  return false;
 }
 
 function applyMove(m, who) {
@@ -239,7 +319,10 @@ function userMove(from, to, promotion) {
 function opponentReply() {
   let r = null;
   if (onLine && pz.line && pz.line[ply]) r = uciToMove(pz.line[ply]);
-  else if (pz.mate) r = bestDefence(game, pz.mate - Math.ceil(ply / 2));
+  else if (pz.mate) {
+    const left = pz.mate - Math.ceil(ply / 2);
+    r = left <= 2 ? bestDefence(game, left) : game.moves({ verbose: true })[0];
+  }
   if (!r) return finish();
   const m = game.move({ from: r.from, to: r.to, promotion: r.promotion });
   applyMove(m, 'opp');
@@ -252,7 +335,7 @@ function uciToMove(u) { return { from: u.slice(0, 2), to: u.slice(2, 4), promoti
 
 function expectedMove() {
   if (onLine && pz.line && pz.line[ply]) return uciToMove(pz.line[ply]);
-  if (pz.mate) { const k = mateKeys(game, movesLeft()); return k[0] || null; }
+  if (pz.mate && movesLeft() <= 2) { const k = mateKeys(game, movesLeft()); return k[0] || null; }
   return null;
 }
 
@@ -280,7 +363,7 @@ function showSolution() {
     const m = game.move(uciToMove(u));
     applyMove(m);
     render();
-    if (i === line.length - 1) { done = true; busy = false; setStatus(`Solution: ${history.join(' ')}`); renderSide(); }
+    if (i === line.length - 1) { done = true; busy = false; setStatus(`Solution: ${history.join(' ')}`); showAnswer(); renderSide(); }
   }, 650 * (i + 1)));
 }
 
@@ -456,16 +539,88 @@ $('clear-mine').onclick = () => {
   books = chapters(); renderChapterSelect(); openPuzzle(0, 0);
 };
 
+// ---------- the reader's own copy of the book ----------
+function setBookStatus(text, kind = '') {
+  const el = $('book-status');
+  el.textContent = text;
+  el.className = 'small ' + kind;
+}
+
+function showBookState() {
+  $('book-loaded').hidden = !bookPuzzles;
+  $('book-load').hidden = !!bookPuzzles;
+  if (bookPuzzles) $('book-count').textContent = bookPuzzles.length.toLocaleString();
+}
+
+function refreshBooks(openFirstBook = false) {
+  const currentId = pz && pz.id;
+  books = chapters();
+  renderChapterSelect();
+  showBookState();
+  if (openFirstBook) {
+    const pi = books[0].puzzles.findIndex(p => !progress[p.id]);
+    return openPuzzle(0, Math.max(0, pi));
+  }
+  const pos = currentId && findPuzzle(currentId);
+  if (pos) openPuzzle(...pos, { keepFlip: true }); else openPuzzle(0, 0);
+}
+
+async function loadBookFile(file) {
+  setBookStatus('Opening the PDF…');
+  $('book-progress').hidden = false;
+  try {
+    const pdfjs = await import('./vendor/pdfjs/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL('./vendor/pdfjs/pdf.worker.min.mjs', import.meta.url).href;
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      pages.push(await pageItems(await doc.getPage(n)));
+      if (n % 25 === 0 || n === doc.numPages) {
+        $('book-progress').value = n / doc.numPages;
+        setBookStatus(`Reading page ${n} of ${doc.numPages}…`);
+        await new Promise(r => setTimeout(r));
+      }
+    }
+    setBookStatus('Setting up the puzzles…');
+    await new Promise(r => setTimeout(r, 30));
+    const { puzzles, problems } = parseBook(pages);
+    if (puzzles.length < 100) throw new Error('This does not look like the 5334-problem book.');
+    bookPuzzles = puzzles;
+    await idbSet('book', puzzles);
+    setBookStatus(`Loaded ${puzzles.length.toLocaleString()} puzzles.` +
+      (problems.length ? ` ${problems.length} could not be read and were skipped (${problems.map(p => p.id).slice(0, 12).join(', ')}${problems.length > 12 ? ', …' : ''}).` : ''), 'good');
+    refreshBooks(true);
+  } catch (err) {
+    setBookStatus(`Could not read that file: ${err.message || err}`, 'bad');
+  } finally {
+    $('book-progress').hidden = true;
+  }
+}
+
+$('book-file').onchange = e => { const f = e.target.files[0]; if (f) loadBookFile(f); e.target.value = ''; };
+$('book-remove').onclick = async () => {
+  if (!confirm('Remove the book from this browser? Your progress is kept.')) return;
+  bookPuzzles = null;
+  await idbSet('book', undefined);
+  setBookStatus('');
+  refreshBooks();
+};
+
 // ---------- start ----------
-function fromHash() {
-  const id = decodeURIComponent(location.hash.slice(1));
+function findPuzzle(id) {
   for (let ci = 0; ci < books.length; ci++) {
     const pi = books[ci].puzzles.findIndex(p => p.id === id);
     if (pi >= 0) return [ci, pi];
   }
   return null;
 }
+const fromHash = () => findPuzzle(decodeURIComponent(location.hash.slice(1)));
+
+const stored = await idbGet('book');
+if (Array.isArray(stored) && stored.length) bookPuzzles = stored;
+books = chapters();
 renderChapterSelect();
+showBookState();
 const start = fromHash();
 if (start) openPuzzle(...start);
 else {

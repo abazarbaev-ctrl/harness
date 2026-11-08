@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkmate Workbook</title>
+<meta name="description" content="Playable chess puzzle workbook: mate in 1 and mate in 2, plus your own imported positions.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Checkmate Workbook</h1>
+  <label class="chapter-pick">
+    <span class="sr">Chapter</span>
+    <select id="chapter"></select>
+  </label>
+</header>
+
+<main class="layout">
+  <section class="board-wrap">
+    <div class="board-meta">
+      <span id="pz-number" class="pz-number"></span>
+      <span id="pz-task" class="pz-task"></span>
+    </div>
+    <div id="board" class="board" role="grid" aria-label="Chess board"></div>
+    <div id="promo" class="promo" hidden></div>
+    <p id="status" class="status" aria-live="polite"></p>
+    <div class="controls">
+      <button id="prev" title="Previous puzzle (←)">◀ Prev</button>
+      <button id="reset" title="Restart this puzzle (R)">↺ Retry</button>
+      <button id="hint" title="Highlight the piece to move (H)">Hint</button>
+      <button id="solution" title="Play the solution (S)">Solution</button>
+      <button id="flip" title="Flip board (F)">⇅ Flip</button>
+      <button id="next" class="primary" title="Next puzzle (→)">Next ▶</button>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="card">
+      <h2 id="ch-title"></h2>
+      <p id="ch-desc" class="muted"></p>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p id="progress-text" class="muted small"></p>
+      <div id="grid" class="grid" aria-label="Puzzle index"></div>
+      <button id="reset-progress" class="link small">Reset progress for this chapter</button>
+    </div>
+
+    <div class="card">
+      <h2>Moves</h2>
+      <ol id="moves" class="moves"></ol>
+    </div>
+
+    <details class="card">
+      <summary><h2>Add your own puzzles</h2></summary>
+      <p class="muted small">Type in positions from a book you own, or anything else. Put one puzzle per line as
+        <code>FEN | mate in N</code> (N from 1 to 3, checked by the built-in solver) or
+        <code>FEN | e2e4 e7e5 …</code> (a fixed solution in UCI or SAN).</p>
+      <textarea id="import-text" rows="5" spellcheck="false"
+        placeholder="6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1 | mate in 1"></textarea>
+      <div class="row">
+        <button id="import-btn" class="primary">Add to “My puzzles”</button>
+        <button id="clear-mine" class="link small">Delete my puzzles</button>
+      </div>
+      <p id="import-msg" class="small"></p>
+    </details>
+  </aside>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

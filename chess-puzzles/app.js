@@ -7,6 +7,11 @@ import {
   settings, setSettings, onSettings, applyColors, boardColors, pieceColors, mix,
   BOARD_THEMES, PIECE_COLORS, PIECE_SETS,
 } from './settings.js';
+import {
+  profiles, currentProfile, createProfile, updateProfile, switchProfile, deleteProfile, onProfilesChange,
+  loadProgress, saveProgress, statsOf, avatarHTML, AVATAR_PIECES, AVATAR_COLORS,
+  startContest, onContest, contestInfo, leaderboard, syncProfile,
+} from './profiles.js';
 
 const $ = id => document.getElementById(id);
 const FILES = 'abcdefgh';
@@ -19,7 +24,12 @@ function load(key, fallback) {
 }
 function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ } }
 
-let progress = load(PROGRESS_KEY, {});
+let progress = currentProfile() ? loadProgress(currentProfile().id) : load(PROGRESS_KEY, {});
+function persistProgress() {
+  const p = currentProfile();
+  if (p) { saveProgress(p.id, progress); syncProfile(p.id); renderProfileChip(); renderContest(); }
+  else save(PROGRESS_KEY, progress);
+}
 let mine = load(MINE_KEY, []);
 let bookPuzzles = null; // parsed from the reader's own PDF, kept in IndexedDB
 
@@ -301,7 +311,7 @@ function history_replace(h) { if (location.hash !== h) window.history.replaceSta
 function mark(result) {
   if (progress[pz.id] === 'solved') return; // never downgrade
   progress[pz.id] = result;
-  save(PROGRESS_KEY, progress);
+  persistProgress();
 }
 
 function showAnswer() {
@@ -546,7 +556,7 @@ $('reset-progress').onclick = async () => {
   const ch = books[chapterIdx];
   if (!(await askConfirm(`Clear your progress in “${ch.title}”?`, 'Clear'))) return;
   ch.puzzles.forEach(p => delete progress[p.id]);
-  save(PROGRESS_KEY, progress);
+  persistProgress();
   renderSide();
 };
 document.addEventListener('keydown', e => {
@@ -612,7 +622,7 @@ $('import-btn').onclick = () => {
 $('clear-mine').onclick = async () => {
   if (!mine.length || !(await askConfirm('Delete all puzzles you added?', 'Delete'))) return;
   mine.forEach((_, i) => delete progress[`mine-${i + 1}`]);
-  mine = []; save(MINE_KEY, mine); save(PROGRESS_KEY, progress);
+  mine = []; save(MINE_KEY, mine); persistProgress();
   books = chapters(); renderChapterSelect(); openPuzzle(0, 0);
 };
 
@@ -703,6 +713,152 @@ onSettings((s, patch) => {
 applyColors();
 buildAppearance();
 
+// ---------- players and contest ----------
+let editingId = null; // profile being edited in the players dialog, or null for a new one
+let draft = { piece: 'n', color: AVATAR_COLORS[0] };
+
+function renderProfileChip() {
+  const p = currentProfile();
+  const chip = $('profile-chip');
+  if (!p) { chip.innerHTML = 'Choose player'; return; }
+  const s = statsOf(progress);
+  chip.innerHTML = `${avatarHTML(p, 26)}<span class="chip-text"><span class="chip-name"></span><span class="chip-score">${s.score} pts</span></span>`;
+  chip.querySelector('.chip-name').textContent = p.name;
+}
+
+function openPlayers(open, { mustChoose = false } = {}) {
+  $('players').hidden = !open;
+  $('players-close').hidden = mustChoose;
+  if (open) { editingId = null; renderPlayers(); showPlayerForm(!profiles().length); }
+}
+
+function renderPlayers() {
+  const list = $('player-list');
+  list.innerHTML = '';
+  const cur = currentProfile();
+  for (const p of profiles()) {
+    const s = statsOf(loadProgress(p.id));
+    const row = document.createElement('div');
+    row.className = 'player-row' + (cur && cur.id === p.id ? ' current' : '');
+    row.innerHTML = `<button class="player-pick">${avatarHTML(p, 40)}<span><strong class="pn"></strong>
+      <span class="muted small tabular">${s.score} pts · ${s.solved} first try · ${s.helped} with help</span></span></button>
+      <button class="ghost tiny player-edit">Edit</button>`;
+    row.querySelector('.pn').textContent = p.name;
+    row.querySelector('.player-pick').onclick = () => { switchProfile(p.id); openPlayers(false); };
+    row.querySelector('.player-edit').onclick = () => {
+      editingId = p.id; draft = { piece: p.piece, color: p.color };
+      $('player-name').value = p.name; showPlayerForm(true);
+    };
+    list.appendChild(row);
+  }
+  $('add-player').hidden = false;
+}
+
+function showPlayerForm(show) {
+  $('player-form').hidden = !show;
+  $('add-player').hidden = show;
+  $('delete-player').hidden = !editingId;
+  $('cancel-player').hidden = !profiles().length;
+  $('player-form-title').textContent = editingId ? 'Edit player' : 'New player';
+  $('save-player').textContent = editingId ? 'Save' : 'Start playing';
+  if (show && !editingId) { $('player-name').value = ''; draft = { piece: AVATAR_PIECES[profiles().length % 6], color: AVATAR_COLORS[profiles().length % AVATAR_COLORS.length] }; }
+  renderAvatarPicker();
+  if (show) setTimeout(() => $('player-name').focus(), 30);
+}
+
+function renderAvatarPicker() {
+  const pieces = $('avatar-pieces'), colors = $('avatar-colors');
+  pieces.innerHTML = ''; colors.innerHTML = '';
+  for (const t of AVATAR_PIECES) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'av-opt'; b.setAttribute('aria-pressed', String(draft.piece === t));
+    b.innerHTML = avatarHTML({ piece: t, color: draft.color }, 36);
+    b.title = PIECE_NAMES[t];
+    b.onclick = () => { draft.piece = t; renderAvatarPicker(); };
+    pieces.appendChild(b);
+  }
+  for (const c of AVATAR_COLORS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'color-opt'; b.style.background = c; b.setAttribute('aria-pressed', String(draft.color === c));
+    b.title = 'Colour'; b.setAttribute('aria-label', 'Avatar colour ' + c);
+    b.onclick = () => { draft.color = c; renderAvatarPicker(); };
+    colors.appendChild(b);
+  }
+}
+
+$('player-form').onsubmit = e => {
+  e.preventDefault();
+  const name = $('player-name').value.trim();
+  if (!name) { $('player-name').focus(); return; }
+  if (editingId) updateProfile(editingId, { name, ...draft });
+  else createProfile({ name, ...draft });
+  if (editingId) syncProfile(editingId, 0); else if (currentProfile()) syncProfile(currentProfile().id, 0);
+  openPlayers(false);
+};
+$('cancel-player').onclick = () => { if (profiles().length) { showPlayerForm(false); editingId = null; } };
+$('add-player').onclick = () => { editingId = null; showPlayerForm(true); };
+$('delete-player').onclick = async () => {
+  const p = profiles().find(x => x.id === editingId);
+  if (!p || !(await askConfirm(`Delete ${p.name} and their progress? This can't be undone.`, 'Delete'))) return;
+  deleteProfile(p.id);
+  editingId = null;
+  if (!profiles().length) openPlayers(true, { mustChoose: true }); else { renderPlayers(); showPlayerForm(false); }
+};
+$('profile-chip').onclick = () => openPlayers(true);
+$('players-close').onclick = () => openPlayers(false);
+$('switch-player').onclick = () => openPlayers(true);
+
+onProfilesChange(() => {
+  const p = currentProfile();
+  progress = p ? loadProgress(p.id) : {};
+  renderProfileChip();
+  renderContest();
+  if (pz) renderSide();
+});
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (!(m >= 0)) return '';
+  if (m < 2) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+
+function renderContest() {
+  const info = contestInfo();
+  const rows = leaderboard();
+  const list = $('contest-list');
+  list.innerHTML = '';
+  const cur = currentProfile();
+  rows.slice(0, 50).forEach((r, i) => {
+    const li = document.createElement('li');
+    li.className = 'contest-row' + (cur && r.id === cur.id ? ' me' : '');
+    li.innerHTML = `<span class="rank tabular">${i + 1}</span>${avatarHTML(r, 30)}
+      <span class="who"><span class="nm"></span><span class="muted small meta"></span></span>
+      <span class="pts tabular">${r.score}<small>pts</small></span>`;
+    li.querySelector('.nm').textContent = r.name || 'Player';
+    const tags = [];
+    if (cur && r.id === cur.id) tags.push('You');
+    else if (r.local) tags.push('This device');
+    tags.push(`${r.solved} first try · ${r.helped} with help`);
+    const ago = !r.local || (cur && r.id === cur.id) ? timeAgo(r.updatedAt) : '';
+    if (ago) tags.push(ago);
+    li.querySelector('.meta').textContent = tags.join(' · ');
+    list.appendChild(li);
+  });
+  if (!rows.length) list.innerHTML = '<li class="muted small">No players yet.</li>';
+  const note = $('contest-note');
+  if (!info.online) note.textContent = 'Showing players on this device. Open the shared page on claude.ai to compete with friends on other devices.';
+  else if (info.state === 'loading') note.textContent = 'Loading the shared leaderboard…';
+  else if (info.state === 'stale') note.textContent = "The shared leaderboard can't be reached right now. Scores may be out of date.";
+  else if (!info.canPost) note.textContent = 'You can watch the contest, but your scores are not posted. Ask the page owner to give you Contributor access.';
+  else note.textContent = 'Live: everyone who opens this page sees the same leaderboard. 3 points for a first-try solve, 1 with help.';
+}
+onContest(renderContest);
+
 // ---------- the reader's own copy of the book ----------
 function setBookStatus(text, kind = '') {
   const el = $('book-status');
@@ -788,6 +944,10 @@ if (Array.isArray(stored) && stored.length) bookPuzzles = stored;
 books = chapters();
 renderChapterSelect();
 showBookState();
+renderProfileChip();
+renderContest();
+startContest();
+if (!profiles().length) openPlayers(true, { mustChoose: true });
 const start = fromHash();
 if (start) openPuzzle(...start);
 else {

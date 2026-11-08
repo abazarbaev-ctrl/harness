@@ -32,6 +32,12 @@ through a server, not `file://`.
 
 ## Features
 
+- **Players and contest:** no sign-up. "Who's playing?" lets each player pick a name and an avatar (a chess
+  piece in a colour) and keeps their own progress on the device. The **Leaderboard** ranks everyone: 3
+  points for a first-try solve and 1 for a solve with help. On claude.ai the leaderboard is shared
+  live through the page's database, so everyone who opens the page sees everyone's scores; players
+  need Contributor access to post. Elsewhere it shows the players on that device.
+
 - **Appearance panel:** eight board colour themes plus custom light/dark squares, three piece styles
   (Classic, Flat, Letters), six piece colour pairs plus custom colours, and a coordinates toggle.
   Your choices are remembered in this browser.
@@ -76,6 +82,7 @@ For the Polgár book itself, use “Open the book PDF…” (see above).
 | `book.js` | Reads the Polgár PDF's text layer (diagrams + answer key) into puzzles |
 | `vendor/pdfjs/` | [pdf.js](https://github.com/mozilla/pdf.js) 4.10.38 (Apache-2.0) |
 | `pieces.js` | Original SVG piece sets (Classic, Flat, Letters) |
+| `profiles.js` | Players (no sign-up), per-player progress, shared leaderboard |
 | `settings.js` | Appearance settings: board themes, piece colours, view |
 | `board3d.js` | 3D board (lazy-loaded) |
 | `vendor/three/` | [three.js](https://threejs.org) r160 (MIT) |
